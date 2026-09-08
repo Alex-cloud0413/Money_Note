@@ -80,13 +80,13 @@ struct SubscriptionsView: View {
         VStack(spacing: 8) {
             Text("每月订阅平摊合计")
                 .font(.subheadline)
-                .foregroundStyle(.white.opacity(0.85))
+                .foregroundStyle(PaperTheme.onAccent.opacity(0.85))
             Text(monthlyTotal.asCurrency)
                 .font(.system(size: 32, weight: .bold, design: .rounded))
-                .foregroundStyle(.white)
+                .foregroundStyle(PaperTheme.onAccent)
             Text("共 \(subscriptions.filter { $0.isActive }.count) 个进行中的订阅")
                 .font(.caption)
-                .foregroundStyle(.white.opacity(0.85))
+                .foregroundStyle(PaperTheme.onAccent.opacity(0.85))
         }
         .padding(20)
         .frame(maxWidth: .infinity)

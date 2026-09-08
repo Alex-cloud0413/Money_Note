@@ -10,16 +10,16 @@ enum PaperTheme {
                            blue: CGFloat(hex & 255) / 255, alpha: 1)
         })
     }
-    static let paper = adaptive(0xF3F0E8, 0x222621)
-    static let surface = adaptive(0xFCFAF4, 0x2C302B)
-    static let ink = adaptive(0x303B33, 0xE5E5D9)
-    static let accent = adaptive(0x536956, 0xBBCDB5)
-    static let onAccent = adaptive(0xFCFAF4, 0x273227)
-    static let rule = adaptive(0xDADACD, 0x454B41)
-    static let soft = adaptive(0xE9EADF, 0x383F35)
-    static let warning = adaptive(0x91674F, 0xD3A58D)
-    static let chart: [Color] = [0x526956, 0x83917B, 0xA9AD94, 0xC6C3AD, 0x8F8B7E, 0xB4AE9E].map {
-        adaptive(UInt32($0), UInt32($0))
+    static let paper = adaptive(0xF3F0E8, 0x202020)
+    static let surface = adaptive(0xFCFAF4, 0x2B2B2B)
+    static let ink = adaptive(0x000000, 0xEEEEEE)
+    static let accent = adaptive(0x000000, 0xFFFFFF)
+    static let onAccent = adaptive(0xFCFAF4, 0x000000)
+    static let rule = adaptive(0xDDDBD7, 0x484848)
+    static let soft = adaptive(0xEAE8E3, 0x363636)
+    static let warning = adaptive(0x555555, 0xBBBBBB)
+    static let chart: [Color] = [0x000000, 0x414141, 0x777777, 0x999999, 0xB8B8B8, 0xD0D0D0].map {
+        adaptive(UInt32($0), UInt32(0xFFFFFF - $0))
     }
 
     static func symbol(_ name: String) -> String {
