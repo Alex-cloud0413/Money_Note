@@ -1,0 +1,18 @@
+# Local Xcode state and build output
+.DS_Store
+xcuserdata/
+*.xcuserstate
+DerivedData/
+build/
+Build/
+*.xcarchive
+*.ipa
+*.dSYM/
+# Signing credentials and local configuration
+*.p12
+*.p8
+*.mobileprovision
+.env
+.env.*
+# Local test products
+.test-output/

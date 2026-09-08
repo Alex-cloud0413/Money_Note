@@ -12,9 +12,19 @@ import SwiftData
 struct MoneyNoteApp: App {
     var sharedModelContainer: ModelContainer = {
         let schema = Schema([
-            Item.self,
+            TxRecord.self,
+            CategoryModel.self,
+            AccountModel.self,
+            BudgetModel.self,
+            SubscriptionModel.self,
         ])
-        let modelConfiguration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
+        // cloudKitDatabase: .automatic —— 当工程开启了 iCloud(CloudKit) 能力时自动同步；
+        // 没开启能力时退回本地存储，不影响使用。
+        let modelConfiguration = ModelConfiguration(
+            schema: schema,
+            isStoredInMemoryOnly: false,
+            cloudKitDatabase: .automatic
+        )
 
         do {
             return try ModelContainer(for: schema, configurations: [modelConfiguration])
@@ -25,7 +35,7 @@ struct MoneyNoteApp: App {
 
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            MainTabView()
         }
         .modelContainer(sharedModelContainer)
     }
