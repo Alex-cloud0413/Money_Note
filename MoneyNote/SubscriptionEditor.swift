@@ -9,6 +9,7 @@ import SwiftUI
 import SwiftData
 
 struct SubscriptionEditor: View {
+    @State private var saveError: String?
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
     @Query(sort: \CategoryModel.sortOrder) private var allCategories: [CategoryModel]
@@ -16,6 +17,9 @@ struct SubscriptionEditor: View {
 
     /// 传入要编辑的订阅；nil 表示新建
     var editing: SubscriptionModel? = nil
+    @Query private var ledgers: [LedgerModel]
+    @AppStorage("selectedLedger") private var currentLedger = LedgerChoice.legacyKey
+    @State private var ledgerKey = LedgerChoice.legacyKey
 
     @State private var name = ""
     @State private var cycle: BillingCycle = .monthly
@@ -101,7 +105,7 @@ struct SubscriptionEditor: View {
                                 selectedParent = cat
                                 selectedChild = nil
                             } label: {
-                                Text("\(cat.icon) \(cat.name)")
+                                Text(cat.name)
                             }
                         }
                     } label: {
@@ -109,7 +113,7 @@ struct SubscriptionEditor: View {
                             Text("大类")
                             Spacer()
                             if let p = selectedParent {
-                                Text("\(p.icon) \(p.name)")
+                                Text(p.name)
                             } else {
                                 Text("请选择").foregroundStyle(.secondary)
                             }
@@ -137,11 +141,14 @@ struct SubscriptionEditor: View {
                 }
 
                 Section("其他") {
+                    Picker("账本", selection: $ledgerKey) {
+                        ForEach(LedgerChoice.choices(ledgers)) { Text($0.name).tag($0.id) }
+                    }
                     Menu {
                         Button("不指定账户") { selectedAccount = nil }
                         ForEach(accounts) { acc in
                             Button { selectedAccount = acc } label: {
-                                Text("\(acc.icon) \(acc.name)")
+                                Text(acc.name)
                             }
                         }
                     } label: {
@@ -149,7 +156,7 @@ struct SubscriptionEditor: View {
                             Text("扣款账户")
                             Spacer()
                             if let acc = selectedAccount {
-                                Text("\(acc.icon) \(acc.name)")
+                                Text(acc.name)
                             } else {
                                 Text("不指定").foregroundStyle(.secondary)
                             }
@@ -178,6 +185,7 @@ struct SubscriptionEditor: View {
                     }
                 }
             }
+            .paperScreen()
             .navigationTitle(isEditing ? "编辑订阅" : "添加订阅")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -193,6 +201,9 @@ struct SubscriptionEditor: View {
                 Button("删除订阅及其流水", role: .destructive) { deleteSubscription() }
             }
             .onAppear(perform: setup)
+            .alert("未能保存", isPresented: Binding(get: { saveError != nil }, set: { if !$0 { saveError = nil } })) {
+                Button("好") { saveError = nil }
+            } message: { Text(saveError ?? "") }
         }
     }
 
@@ -211,11 +222,13 @@ struct SubscriptionEditor: View {
             selectedParent = expenseTopCategories.first { $0.name == s.categoryName }
             selectedChild = selectedParent?.sortedChildren.first { $0.name == s.subcategoryName }
             selectedAccount = s.account
+            ledgerKey = s.ledgerKey
             note = s.note
             isActive = s.isActive
         } else {
             selectedParent = expenseTopCategories.first { $0.name == "其他" } ?? expenseTopCategories.first
             selectedAccount = accounts.first
+            ledgerKey = currentLedger
         }
     }
 
@@ -236,6 +249,7 @@ struct SubscriptionEditor: View {
             s.categoryIcon = parent.icon
             s.subcategoryName = selectedChild?.name ?? ""
             s.account = selectedAccount
+            s.ledgerKey = ledgerKey
             s.note = note
             s.isActive = isActive
         } else {
@@ -249,12 +263,18 @@ struct SubscriptionEditor: View {
                                         subcategoryName: selectedChild?.name ?? "",
                                         note: note)
             sub.account = selectedAccount
+            sub.ledgerKey = ledgerKey
             modelContext.insert(sub)
         }
 
-        try? modelContext.save()
-        SubscriptionEngine.sync(modelContext)
-        dismiss()
+        do {
+            try modelContext.save()
+            SubscriptionEngine.sync(modelContext)
+            dismiss()
+        } catch {
+            modelContext.rollback()
+            saveError = "订阅尚未保存，请重试。"
+        }
     }
 
     private func deleteSubscription() {

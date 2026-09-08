@@ -18,6 +18,15 @@ struct TransactionEditor: View {
 
     /// 传入要编辑的记录；nil 表示新建
     var editing: TxRecord? = nil
+    @Query private var ledgers: [LedgerModel]
+    @AppStorage("selectedLedger") private var currentLedger = LedgerChoice.legacyKey
+    @State private var ledgerKey = LedgerChoice.legacyKey
+    @State private var saveError: String?
+    @State private var confirmDelete = false
+    private var canSave: Bool {
+        guard let total = Calc.evaluate(amountText), total > 0, total < 1_000_000_000, selectedParent != nil else { return false }
+        return !isInstallment || total >= Double(periods) / 100
+    }
 
     @State private var type: TransactionType = .expense
     @State private var amountText = ""
@@ -57,39 +66,56 @@ struct TransactionEditor: View {
 
     var body: some View {
         NavigationStack {
-            ZStack(alignment: .bottom) {
-                ScrollView {
-                    VStack(spacing: 16) {
-                        Picker("类型", selection: typeBinding) {
-                            ForEach(TransactionType.allCases, id: \.self) { Text($0.rawValue).tag($0) }
-                        }
-                        .pickerStyle(.segmented)
-
-                        amountCard
-                        categoryCard
-                        optionCard
-                    }
-                    .padding()
-                    .padding(.bottom, showKeypad ? 340 : 12)
-                }
-                .scrollDismissesKeyboard(.interactively)
-
-                if showKeypad { keypadOverlay }
+            ScrollView {
+                VStack(spacing: 18) {
+                    Picker("类型", selection: typeBinding) {
+                        ForEach(TransactionType.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+                    }.pickerStyle(.segmented)
+                    amountCard
+                    categoryCard
+                    optionCard
+                }.padding(20)
             }
+            .scrollDismissesKeyboard(.interactively)
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                if showKeypad { keypadOverlay.background(PaperTheme.paper.ignoresSafeArea(edges: .bottom)) }
+                else if !noteFocused {
+                    Button(action: save) {
+                        Text("完成记账").foregroundStyle(PaperTheme.onAccent).font(.headline).frame(maxWidth: .infinity).padding(16)
+                    }
+                    .buttonStyle(.borderedProminent).tint(PaperTheme.accent)
+                    .disabled(!canSave)
+                    .accessibilityIdentifier("saveTransactionBottom")
+                    .padding(.horizontal, 20).padding(.vertical, 10)
+                    .background(PaperTheme.paper)
+                }
+            }
+            .paperScreen()
             .navigationTitle(isEditing ? "编辑" : "记一笔")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("取消") { dismiss() }
                 }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("完成", action: save).fontWeight(.semibold).disabled(!canSave)
+                        .accessibilityIdentifier("saveTransaction")
+                }
                 if isEditing {
                     ToolbarItem(placement: .destructiveAction) {
-                        Button("删除", role: .destructive) { deleteRecord() }
+                        Button("删除", role: .destructive) { confirmDelete = true }
                     }
                 }
             }
             .sheet(isPresented: $showManager) { CategoryManagerView() }
             .onAppear(perform: setup)
+            .onChange(of: noteFocused) { _, focused in if focused { showKeypad = false } }
+            .confirmationDialog("删除这笔记录？", isPresented: $confirmDelete, titleVisibility: .visible) {
+                Button("删除记录", role: .destructive, action: deleteRecord)
+            }
+            .alert("未能保存", isPresented: Binding(get: { saveError != nil }, set: { if !$0 { saveError = nil } })) {
+                Button("好") { saveError = nil }
+            } message: { Text(saveError ?? "") }
         }
     }
 
@@ -115,7 +141,7 @@ struct TransactionEditor: View {
                 }
             }
             .padding()
-            .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 14))
+            .paperCard()
             .overlay(
                 RoundedRectangle(cornerRadius: 14)
                     .stroke(showKeypad ? Color.accentColor : .clear, lineWidth: 2)
@@ -136,12 +162,18 @@ struct TransactionEditor: View {
             let columns = Array(repeating: GridItem(.flexible()), count: 4)
             LazyVGrid(columns: columns, spacing: 14) {
                 ForEach(topCategories(for: type)) { cat in
-                    categoryCell(icon: cat.icon, name: cat.name,
-                                 selected: cat.persistentModelID == selectedParent?.persistentModelID)
-                        .onTapGesture {
-                            selectedParent = cat
-                            selectedChild = nil
-                        }
+                    Button {
+                        selectedParent = cat
+                        selectedChild = nil
+                        showKeypad = false
+                        noteFocused = false
+                    } label: {
+                        categoryCell(icon: cat.icon, name: cat.name,
+                                     selected: cat.persistentModelID == selectedParent?.persistentModelID)
+                    }.buttonStyle(.plain)
+                        .accessibilityLabel(cat.name)
+                        .accessibilityAddTraits(cat.persistentModelID == selectedParent?.persistentModelID ? .isSelected : [])
+
                 }
             }
 
@@ -163,7 +195,7 @@ struct TransactionEditor: View {
             }
         }
         .padding()
-        .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 14))
+        .paperCard()
     }
 
     // MARK: - 日期 / 备注 / 分期
@@ -176,13 +208,13 @@ struct TransactionEditor: View {
                 Menu {
                     ForEach(accounts) { acc in
                         Button { selectedAccount = acc } label: {
-                            Text("\(acc.icon) \(acc.name)")
+                            Text(acc.name)
                         }
                     }
                 } label: {
                     HStack(spacing: 4) {
                         if let acc = selectedAccount {
-                            Text("\(acc.icon) \(acc.name)")
+                            Text(acc.name)
                         } else {
                             Text("选择账户").foregroundStyle(.secondary)
                         }
@@ -191,6 +223,16 @@ struct TransactionEditor: View {
                 }
             }
             .padding(.vertical, 8)
+            Divider()
+            HStack {
+                Text("账本")
+                Spacer()
+                Picker("账本", selection: $ledgerKey) {
+                    ForEach(LedgerChoice.choices(ledgers)) { Text($0.name).tag($0.id) }
+                }.labelsHidden()
+            }
+            .padding(.vertical, 8)
+            .accessibilityIdentifier("entryLedgerPicker")
             Divider()
             DatePicker("日期", selection: $date, displayedComponents: [.date, .hourAndMinute])
                 .padding(.vertical, 8)
@@ -215,7 +257,7 @@ struct TransactionEditor: View {
                         HStack {
                             Text("每期约").foregroundStyle(.secondary)
                             Spacer()
-                            Text("¥\(Calc.format((total / Double(periods) * 100).rounded() / 100)) ，共 \(periods) 个月")
+                            Text("¥\(Calc.format(Double(Int((total * 100).rounded()) / periods) / 100)) 起，共 \(periods) 个月")
                                 .foregroundStyle(.secondary)
                         }
                         .font(.footnote)
@@ -225,7 +267,7 @@ struct TransactionEditor: View {
             }
         }
         .padding(.horizontal)
-        .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 14))
+        .paperCard()
     }
 
     // MARK: - 计算器键盘浮层
@@ -240,13 +282,13 @@ struct TransactionEditor: View {
             }
             .padding(.horizontal)
             .padding(.vertical, 10)
-            .background(Color(.systemGroupedBackground))
+            .background(PaperTheme.paper)
 
             CalculatorKeypad(text: $amountText,
                              clearOnNextInput: $clearOnNextInput,
-                             onDone: save)
+                             onDone: { showKeypad = false })
         }
-        .background(Color(.systemGroupedBackground))
+        .background(PaperTheme.paper)
         .clipShape(RoundedRectangle(cornerRadius: 16))
         .shadow(color: .black.opacity(0.15), radius: 8, y: -2)
         .transition(.move(edge: .bottom))
@@ -255,14 +297,16 @@ struct TransactionEditor: View {
     // MARK: - 小组件
 
     private func categoryCell(icon: String, name: String, selected: Bool) -> some View {
-        VStack(spacing: 6) {
-            Text(icon).font(.title)
+        VStack(spacing: 7) {
+            Image(systemName: PaperTheme.symbol(name))
+                .font(.system(size: 22, weight: .regular))
+                .foregroundStyle(selected ? PaperTheme.onAccent : PaperTheme.ink)
                 .frame(width: 52, height: 52)
-                .background(Circle().fill(selected ? Color.accentColor.opacity(0.2) : Color(.tertiarySystemBackground)))
-                .overlay(Circle().stroke(selected ? Color.accentColor : .clear, lineWidth: 2))
+                .background(selected ? PaperTheme.accent : PaperTheme.soft,
+                            in: RoundedRectangle(cornerRadius: 16))
             Text(name).font(.caption)
-                .foregroundStyle(selected ? Color.accentColor : .secondary)
-        }
+                .foregroundStyle(selected ? PaperTheme.ink : Color.secondary)
+        }.frame(maxWidth: .infinity)
     }
 
     private func chip(title: String, selected: Bool, action: @escaping () -> Void) -> some View {
@@ -270,8 +314,8 @@ struct TransactionEditor: View {
             Text(title)
                 .font(.subheadline)
                 .padding(.horizontal, 14).padding(.vertical, 7)
-                .background(Capsule().fill(selected ? Color.accentColor : Color(.tertiarySystemBackground)))
-                .foregroundStyle(selected ? .white : .primary)
+                .background(Capsule().fill(selected ? Color.accentColor : PaperTheme.soft))
+                .foregroundStyle(selected ? PaperTheme.onAccent : PaperTheme.ink)
         }
         .buttonStyle(.plain)
     }
@@ -289,18 +333,23 @@ struct TransactionEditor: View {
             date = r.date
             selectedParent = topCategories(for: r.type).first { $0.name == r.categoryName }
             selectedChild = selectedParent?.sortedChildren.first { $0.name == r.subcategoryName }
-            selectedAccount = r.account ?? accounts.first
+            selectedAccount = r.account
+            ledgerKey = r.ledgerKey
         } else {
             selectedParent = topCategories(for: type).first
             selectedAccount = accounts.first
+            ledgerKey = currentLedger
+            showKeypad = true
         }
     }
 
     // MARK: - 保存 / 删除
 
     private func save() {
-        guard let parent = selectedParent else { return }
-        guard let total = Calc.evaluate(amountText), total > 0 else { return }
+        guard canSave, let parent = selectedParent else { return }
+        guard let evaluated = Calc.evaluate(amountText), evaluated > 0 else { return }
+        let total = (evaluated * 100).rounded() / 100
+        guard total > 0 else { return }
         let pName = parent.name
         let icon = parent.icon
         let sName = selectedChild?.name ?? ""
@@ -314,17 +363,20 @@ struct TransactionEditor: View {
             r.note = note
             r.date = date
             r.account = selectedAccount
+            r.ledgerKey = ledgerKey
         } else if isInstallment && periods >= 2 {
             let group = UUID()
-            let per = (total / Double(periods) * 100).rounded() / 100
+            let amounts = InstallmentPlan.amounts(total: total, periods: periods)
+            guard amounts.count == periods else { return }
             for i in 0..<periods {
-                let amt = (i == periods - 1) ? (total - per * Double(periods - 1)) : per
+                let amt = amounts[i]
                 let d = Calendar.current.date(byAdding: .month, value: i, to: date) ?? date
                 let rec = TxRecord(amount: amt, type: type,
                                    categoryName: pName, categoryIcon: icon, subcategoryName: sName,
                                    note: note, date: d,
                                    installmentGroupID: group, installmentIndex: i + 1, installmentCount: periods)
                 rec.account = selectedAccount
+                rec.ledgerKey = ledgerKey
                 modelContext.insert(rec)
             }
         } else {
@@ -332,13 +384,21 @@ struct TransactionEditor: View {
                                categoryName: pName, categoryIcon: icon, subcategoryName: sName,
                                note: note, date: date)
             rec.account = selectedAccount
+            rec.ledgerKey = ledgerKey
             modelContext.insert(rec)
         }
-        dismiss()
+        do {
+            try modelContext.save()
+            currentLedger = ledgerKey
+            dismiss()
+        } catch {
+            modelContext.rollback()
+            saveError = "这笔账尚未保存，请稍后重试。"
+        }
     }
 
     private func deleteRecord() {
         if let r = editing { modelContext.delete(r) }
-        dismiss()
+        do { try modelContext.save(); dismiss() } catch { modelContext.rollback(); saveError = "删除未成功，请重试。" }
     }
 }

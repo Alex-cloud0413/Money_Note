@@ -18,13 +18,6 @@ enum TransactionType: String, Codable, CaseIterable {
 /// 一笔账单流水。@Model 表示它会被 SwiftData 自动存到本地数据库。
 @Model
 final class TxRecord {
-    /// Nil preserves existing and late-arriving CloudKit records in the life ledger.
-    var bookID: String? = nil
-    var ledgerKey: String {
-        get { bookID ?? LedgerChoice.legacyKey }
-        set { bookID = newValue }
-    }
-
     /// 金额，永远存正数（用 type 区分收/支）
     var amount: Double = 0
     /// 收支类型，底层存字符串（"支出"/"收入"），更稳妥

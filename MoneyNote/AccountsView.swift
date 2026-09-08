@@ -9,6 +9,7 @@ import SwiftUI
 import SwiftData
 
 struct AccountsView: View {
+    @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \AccountModel.sortOrder) private var accounts: [AccountModel]
 
@@ -27,7 +28,7 @@ struct AccountsView: View {
                         Text("净资产").font(.subheadline).foregroundStyle(.secondary)
                         Text(netWorth.asCurrency)
                             .font(.system(size: 32, weight: .bold, design: .rounded))
-                            .foregroundStyle(netWorth < 0 ? .red : .primary)
+                            .foregroundStyle(netWorth < 0 ? PaperTheme.warning : PaperTheme.ink)
                     }
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 8)
@@ -54,7 +55,9 @@ struct AccountsView: View {
                     }
                 }
             }
-            .navigationTitle("账户")
+            .paperScreen()
+            .navigationTitle("资金账户")
+            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { dismiss() } } }
             .sheet(item: $editing) { acc in
                 AccountEditView(account: acc)
             }
@@ -71,10 +74,7 @@ struct AccountRow: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            Text(account.icon)
-                .font(.title2)
-                .frame(width: 44, height: 44)
-                .background(Circle().fill(Color(.secondarySystemBackground)))
+            CategoryGlyph(name: account.type.rawValue)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(account.name)
@@ -87,9 +87,9 @@ struct AccountRow: View {
             VStack(alignment: .trailing, spacing: 2) {
                 Text(account.balance.asCurrency)
                     .font(.system(.body, design: .rounded))
-                    .foregroundStyle(account.balance < 0 ? .red : .primary)
+                    .foregroundStyle(account.balance < 0 ? PaperTheme.warning : PaperTheme.ink)
                 if account.type == .credit && account.balance < 0 {
-                    Text("欠款").font(.caption2).foregroundStyle(.red)
+                    Text("欠款").font(.caption2).foregroundStyle(PaperTheme.warning)
                 }
             }
         }
@@ -152,6 +152,7 @@ struct AccountEditView: View {
                     Text("建账户时账上已有的钱。信用卡可填 0，已用额度填负数。")
                 }
             }
+            .paperScreen()
             .navigationTitle(isEditing ? "编辑账户" : "添加账户")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

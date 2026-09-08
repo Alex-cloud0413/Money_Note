@@ -40,11 +40,11 @@ struct PinnedCategoryCards: View {
                 Button {
                     showPicker = true
                 } label: {
-                    Label("关注一个大类，实时看本月花了多少", systemImage: "plus.circle")
+                    Label("关注分类", systemImage: "plus.circle")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity)
-                        .padding(.vertical, 12)
+                        .padding(.vertical, 8)
                         .background(
                             RoundedRectangle(cornerRadius: 14)
                                 .strokeBorder(style: StrokeStyle(lineWidth: 1, dash: [5]))
@@ -74,7 +74,7 @@ struct PinnedCategoryCards: View {
     private func card(name: String) -> some View {
         VStack(alignment: .leading, spacing: 1) {
             HStack(spacing: 4) {
-                Text(icon(for: name)).font(.subheadline)
+                Image(systemName: PaperTheme.symbol(name)).font(.subheadline)
                 Text(name)
                     .font(.subheadline).fontWeight(.semibold)
                     .foregroundStyle(.primary)
@@ -88,7 +88,7 @@ struct PinnedCategoryCards: View {
         }
         .padding(.horizontal, 12)
         .frame(width: 116, height: cardHeight, alignment: .leading)
-        .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 12))
+        .background(PaperTheme.surface, in: RoundedRectangle(cornerRadius: 12))
     }
 
     private var manageButton: some View {
@@ -101,7 +101,7 @@ struct PinnedCategoryCards: View {
             }
             .foregroundStyle(.secondary)
             .frame(width: 56, height: cardHeight)
-            .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 12))
+            .background(PaperTheme.surface, in: RoundedRectangle(cornerRadius: 12))
         }
         .buttonStyle(.plain)
     }
@@ -147,7 +147,7 @@ struct PinnedCategoryPicker: View {
                             toggle(cat.name)
                         } label: {
                             HStack {
-                                Text("\(cat.icon) \(cat.name)")
+                                Label(cat.name, systemImage: PaperTheme.symbol(cat.name))
                                     .foregroundStyle(.primary)
                                 Spacer()
                                 if pinnedNames.contains(cat.name) {
@@ -159,6 +159,7 @@ struct PinnedCategoryPicker: View {
                     }
                 }
             }
+            .paperScreen()
             .navigationTitle("关注的大类")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

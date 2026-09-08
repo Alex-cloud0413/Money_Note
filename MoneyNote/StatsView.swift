@@ -1,241 +1,138 @@
-//
-//  StatsView.swift
-//  MoneyNote
-//
-//  统计页：月份切换 + 支出/收入切换 + 环形饼图 + 分类排行 + 近 6 月趋势。
-//
-
 import SwiftUI
 import SwiftData
 import Charts
 
-/// 一个分类的统计结果
-struct CategoryStat: Identifiable {
-    var id: String { name }
-    let name: String
-    let icon: String
-    let amount: Double
-    let percent: Double      // 0 ~ 1
-    let color: Color
-}
-
 struct StatsView: View {
     @Query private var transactions: [TxRecord]
-
-    @State private var month: Date = Calendar.current.startOfDay(for: .now)
+    @AppStorage("selectedLedger") private var ledger = LedgerChoice.legacyKey
+    @State private var month = Date.now
     @State private var type: TransactionType = .expense
+    @State private var parent: String?
 
-    /// 给分类上色的调色板
-    private let palette: [Color] = [
-        .blue, .green, .orange, .purple, .pink, .red,
-        .teal, .yellow, .indigo, .mint, .cyan, .brown,
-    ]
+    private var monthly: [TxRecord] {
+        LedgerAnalytics.records(transactions, ledger: ledger, month: month, type: type)
+    }
+    private var scoped: [TxRecord] { monthly.filter { parent == nil || $0.categoryName == parent } }
+    private var total: Double { scoped.reduce(0) { $0 + $1.amount } }
+    private var stats: [CategoryTotal] { LedgerAnalytics.categories(scoped, children: parent != nil) }
 
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(spacing: 16) {
-                    monthHeader
-                    Picker("类型", selection: $type) {
+                VStack(alignment: .leading, spacing: 20) {
+                    LedgerPicker()
+                    MonthPicker(month: $month)
+                    Picker("收支类型", selection: $type) {
                         ForEach(TransactionType.allCases, id: \.self) { Text($0.rawValue).tag($0) }
-                    }
-                    .pickerStyle(.segmented)
-
-                    if stats.isEmpty {
-                        emptyCard
-                    } else {
-                        pieCard
-                        rankCard
-                    }
-                    trendCard
-                }
-                .padding()
-            }
-            .navigationTitle("统计")
-        }
-    }
-
-    // MARK: - 月份切换
-
-    private var monthHeader: some View {
-        HStack {
-            Button { changeMonth(-1) } label: {
-                Image(systemName: "chevron.left").frame(width: 44, height: 32)
-            }
-            Spacer()
-            Text(monthTitle(month)).font(.headline)
-            Spacer()
-            Button { changeMonth(1) } label: {
-                Image(systemName: "chevron.right").frame(width: 44, height: 32)
-            }
-            .disabled(isCurrentMonth)
-            .opacity(isCurrentMonth ? 0.3 : 1)
-        }
-    }
-
-    // MARK: - 环形饼图
-
-    private var pieCard: some View {
-        VStack(spacing: 12) {
-            ZStack {
-                Chart(stats) { stat in
-                    SectorMark(
-                        angle: .value("金额", stat.amount),
-                        innerRadius: .ratio(0.62),
-                        angularInset: 1.5
-                    )
-                    .cornerRadius(4)
-                    .foregroundStyle(stat.color)
-                }
-                .chartLegend(.hidden)
-                .frame(height: 220)
-
-                VStack(spacing: 2) {
-                    Text(type == .expense ? "总支出" : "总收入")
-                        .font(.caption).foregroundStyle(.secondary)
-                    Text(total.asCurrency)
-                        .font(.system(.title2, design: .rounded)).bold()
-                }
-            }
-        }
-        .padding()
-        .frame(maxWidth: .infinity)
-        .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 16))
-    }
-
-    // MARK: - 分类排行
-
-    private var rankCard: some View {
-        VStack(spacing: 0) {
-            ForEach(Array(stats.enumerated()), id: \.element.id) { index, stat in
-                HStack(spacing: 12) {
-                    Text(stat.icon)
-                        .font(.title3)
-                        .frame(width: 38, height: 38)
-                        .background(Circle().fill(stat.color.opacity(0.18)))
-
-                    VStack(alignment: .leading, spacing: 4) {
+                    }.pickerStyle(.segmented)
+                    if let parent {
                         HStack {
-                            Text(stat.name)
-                            Spacer()
-                            Text(stat.amount.asCurrency)
-                                .font(.system(.body, design: .rounded))
-                        }
-                        // 占比小进度条
-                        GeometryReader { geo in
-                            ZStack(alignment: .leading) {
-                                Capsule().fill(Color(.tertiarySystemBackground)).frame(height: 5)
-                                Capsule().fill(stat.color)
-                                    .frame(width: geo.size.width * stat.percent, height: 5)
+                            CategoryGlyph(name: parent)
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(parent + " · 子分类").font(.title3.weight(.medium))
+                                Text("下方占比以本类合计为分母").font(.caption).foregroundStyle(.secondary)
                             }
                         }
-                        .frame(height: 5)
                     }
-                    Text("\(Int((stat.percent * 100).rounded()))%")
-                        .font(.caption).foregroundStyle(.secondary)
-                        .frame(width: 40, alignment: .trailing)
+                    if stats.isEmpty {
+                        ContentUnavailableView("本月还没有\(type.rawValue)记录", systemImage: "chart.bar.xaxis",
+                                               description: Text("记下第一笔，慢慢看清钱的去向。"))
+                    } else {
+                        distribution
+                        VStack(spacing: 0) {
+                            HStack {
+                                Text(parent == nil ? "分类构成" : "子分类构成").font(.headline)
+                                Spacer()
+                                Text(parent == nil ? "点分类查看细分" : "占本类 / 占本月")
+                                    .font(.caption).foregroundStyle(.secondary)
+                            }.padding(.bottom, 12)
+                            ForEach(Array(stats.enumerated()), id: \.element.id) { i, stat in
+                                if parent == nil {
+                                    Button { parent = stat.name } label: { rankRow(stat, index: i) }
+                                        .buttonStyle(.plain)
+                                        .accessibilityIdentifier("category-" + stat.name)
+                                } else { rankRow(stat, index: i) }
+                                if i < stats.count - 1 { Divider().overlay(PaperTheme.rule) }
+                            }
+                        }.padding(20).paperCard()
+                    }
+                    trendCard
+                }.padding(20)
+            }.id(parent).paperScreen().navigationTitle("统计")
+                .toolbar {
+                    if parent != nil {
+                        ToolbarItem(placement: .topBarLeading) {
+                            Button { parent = nil } label: { Label("全部分类", systemImage: "chevron.left") }
+                        }
+                    }
                 }
-                .padding(.vertical, 10)
-
-                if index < stats.count - 1 { Divider() }
-            }
+                .onChange(of: ledger) { _, _ in parent = nil }
+                .onChange(of: type) { _, _ in parent = nil }
         }
-        .padding(.horizontal)
-        .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 16))
     }
 
-    // MARK: - 近 6 个月趋势
+    private var distribution: some View {
+        VStack(spacing: 12) {
+            ZStack {
+                Chart(Array(stats.enumerated()), id: \.element.id) { i, stat in
+                    SectorMark(angle: .value("金额", stat.amount), innerRadius: .ratio(0.78), angularInset: 2)
+                        .cornerRadius(3).foregroundStyle(PaperTheme.chart[i % PaperTheme.chart.count])
+                        .accessibilityLabel(stat.name)
+                        .accessibilityValue("\(stat.amount.asCurrency)，占比\(percent(stat.share))")
+                }.chartLegend(.hidden).frame(height: 224)
+                VStack(spacing: 8) {
+                    Text(parent == nil ? "本月" + type.rawValue : "本类" + type.rawValue)
+                        .font(.caption).foregroundStyle(.secondary)
+                    Text(total.asCurrency).font(.system(.title2, design: .serif)).monospacedDigit()
+                        .lineLimit(1).minimumScaleFactor(0.6).frame(maxWidth: 165)
+                    Text("\(scoped.count) 笔").font(.caption2).foregroundStyle(.secondary)
+                }.allowsHitTesting(false)
+            }
+            if parent != nil {
+                let whole = monthly.reduce(0) { $0 + $1.amount }
+                Text("占本月\(type.rawValue) \(percent(whole > 0 ? total / whole : 0))")
+                    .font(.footnote).foregroundStyle(.secondary)
+            }
+        }.padding(24).frame(maxWidth: .infinity).paperCard()
+    }
+
+    private func rankRow(_ stat: CategoryTotal, index: Int) -> some View {
+        VStack(spacing: 9) {
+            HStack(spacing: 10) {
+                Circle().fill(PaperTheme.chart[index % PaperTheme.chart.count]).frame(width: 8, height: 8)
+                Text(stat.name).font(.subheadline)
+                Spacer(minLength: 6)
+                Text(stat.amount.asCurrency).font(.subheadline.weight(.medium)).monospacedDigit()
+                if parent == nil { Image(systemName: "chevron.right").font(.caption2).foregroundStyle(.secondary) }
+            }
+            HStack(spacing: 14) {
+                GeometryReader { geo in
+                    Capsule().fill(PaperTheme.soft).overlay(alignment: .leading) {
+                        Capsule().fill(PaperTheme.chart[index % PaperTheme.chart.count])
+                            .frame(width: geo.size.width * min(1, max(0, stat.share)))
+                    }
+                }.frame(height: 4)
+                let all = monthly.reduce(0) { $0 + $1.amount }
+                Text(parent == nil ? percent(stat.share) : "\(percent(stat.share)) / \(percent(all > 0 ? stat.amount / all : 0))")
+                    .font(.caption).monospacedDigit().foregroundStyle(.secondary)
+            }
+        }.padding(.vertical, 13).contentShape(Rectangle())
+    }
 
     private var trendCard: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text(type == .expense ? "近 6 个月支出" : "近 6 个月收入")
-                .font(.subheadline).foregroundStyle(.secondary)
-            Chart(trend, id: \.label) { item in
-                BarMark(
-                    x: .value("月份", item.label),
-                    y: .value("金额", item.amount)
-                )
-                .foregroundStyle(type == .expense ? Color.accentColor : Color.green)
-                .cornerRadius(4)
-            }
-            .frame(height: 160)
-        }
-        .padding()
-        .frame(maxWidth: .infinity)
-        .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 16))
+        VStack(alignment: .leading, spacing: 20) {
+            Text((parent.map { $0 + " · " } ?? "") + "近六个月" + type.rawValue).font(.headline)
+            Chart(0..<6, id: \.self) { i in
+                let date = Calendar.current.date(byAdding: .month, value: i - 5, to: month) ?? month
+                let value = LedgerAnalytics.records(transactions, ledger: ledger, month: date, type: type, parent: parent)
+                    .reduce(0) { $0 + $1.amount }
+                BarMark(x: .value("月份", date, unit: .month), y: .value("金额", value))
+                    .foregroundStyle(i == 5 ? PaperTheme.accent : PaperTheme.accent.opacity(0.35))
+                    .cornerRadius(4)
+            }.frame(height: 155)
+                .chartXAxis { AxisMarks(values: .stride(by: .month)) { _ in AxisValueLabel(format: .dateTime.month(.defaultDigits)) } }
+        }.padding(20).paperCard()
     }
 
-    // MARK: - 空状态
-
-    private var emptyCard: some View {
-        VStack(spacing: 8) {
-            Image(systemName: "chart.pie").font(.largeTitle).foregroundStyle(.secondary)
-            Text("本月还没有\(type.rawValue)记录").foregroundStyle(.secondary)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 40)
-        .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 16))
-    }
-
-    // MARK: - 计算
-
-    /// 选中月、选中类型的记录
-    private var monthRecords: [TxRecord] {
-        transactions.filter {
-            $0.type == type &&
-            Calendar.current.isDate($0.date, equalTo: month, toGranularity: .month)
-        }
-    }
-
-    private var total: Double {
-        monthRecords.reduce(0) { $0 + $1.amount }
-    }
-
-    /// 按大类汇总、排序、上色
-    private var stats: [CategoryStat] {
-        let groups = Dictionary(grouping: monthRecords) { $0.categoryName }
-        let sorted = groups
-            .map { (name, recs) -> (String, String, Double) in
-                (name, recs.first?.categoryIcon ?? "💸", recs.reduce(0) { $0 + $1.amount })
-            }
-            .sorted { $0.2 > $1.2 }
-        return sorted.enumerated().map { index, item in
-            CategoryStat(name: item.0, icon: item.1, amount: item.2,
-                         percent: total > 0 ? item.2 / total : 0,
-                         color: palette[index % palette.count])
-        }
-    }
-
-    /// 近 6 个月（含选中月）每月合计
-    private var trend: [(label: String, amount: Double)] {
-        (0..<6).reversed().map { back -> (String, Double) in
-            let m = Calendar.current.date(byAdding: .month, value: -back, to: month) ?? month
-            let sum = transactions
-                .filter { $0.type == type && Calendar.current.isDate($0.date, equalTo: m, toGranularity: .month) }
-                .reduce(0) { $0 + $1.amount }
-            let f = DateFormatter()
-            f.locale = Locale(identifier: "zh_CN")
-            f.dateFormat = "M月"
-            return (f.string(from: m), sum)
-        }
-    }
-
-    // MARK: - 月份工具
-
-    private var isCurrentMonth: Bool {
-        Calendar.current.isDate(month, equalTo: .now, toGranularity: .month)
-    }
-
-    private func changeMonth(_ delta: Int) {
-        if let m = Calendar.current.date(byAdding: .month, value: delta, to: month) {
-            month = m
-        }
-    }
-
-    private func monthTitle(_ date: Date) -> String {
-        let f = DateFormatter()
-        f.locale = Locale(identifier: "zh_CN")
-        f.dateFormat = "yyyy年M月"
-        return f.string(from: date)
-    }
+    private func percent(_ share: Double) -> String { String(format: "%.1f%%", share * 100) }
 }

@@ -106,7 +106,7 @@ struct CalculatorKeypad: View {
                     Text("清空").keyLabel()
                 }
                 .buttonStyle(.plain)
-                .background(Color(.tertiarySystemBackground), in: RoundedRectangle(cornerRadius: 12))
+                .background(PaperTheme.soft, in: RoundedRectangle(cornerRadius: 12))
 
                 Button {
                     if hasOperator {
@@ -115,16 +115,16 @@ struct CalculatorKeypad: View {
                         onDone()
                     }
                 } label: {
-                    Text(hasOperator ? "＝" : "完成")
+                    Text(hasOperator ? "＝" : "下一步")
                         .keyLabel()
-                        .foregroundStyle(.white)
+                        .foregroundStyle(PaperTheme.onAccent)
                 }
                 .buttonStyle(.plain)
                 .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 12))
             }
         }
         .padding(10)
-        .background(Color(.systemGroupedBackground))
+        .background(PaperTheme.paper)
     }
 
     private func keyButton(_ key: String) -> some View {
@@ -135,7 +135,7 @@ struct CalculatorKeypad: View {
         }
         .buttonStyle(.plain)
         .background(
-            "+-×÷".contains(key) ? Color(.tertiarySystemBackground) : Color(.secondarySystemBackground),
+            "+-×÷".contains(key) ? PaperTheme.soft : PaperTheme.surface,
             in: RoundedRectangle(cornerRadius: 12)
         )
     }
@@ -164,7 +164,7 @@ struct CalculatorKeypad: View {
             // 当前这一段数字里已经有小数点就不再加
             let segment = text.split(whereSeparator: { "+-×÷".contains($0) }).last.map(String.init) ?? ""
             if !segment.contains(".") {
-                text.append(text.isEmpty ? "0." : ".")
+                text.append(text.isEmpty || text.last.map { "+-×÷".contains($0) } == true ? "0." : ".")
             }
         default: // 数字
             text.append(key)
@@ -177,7 +177,7 @@ private extension View {
     func keyLabel() -> some View {
         self.font(.title2)
             .frame(maxWidth: .infinity)
-            .frame(height: 52)
+            .frame(height: 44)
             .contentShape(Rectangle())
     }
 }

@@ -89,6 +89,7 @@ enum SubscriptionEngine {
 
                 if let recs = existing[key], let keep = recs.first {
                     // 已有：仅当值真的变了才赋值（保持幂等，避免反复变脏触发多余保存/同步抖动）
+                    if keep.ledgerKey != sub.ledgerKey { keep.ledgerKey = sub.ledgerKey; changed = true }
                     if keep.amount != amt { keep.amount = amt; changed = true }
                     if keep.categoryName != sub.categoryName { keep.categoryName = sub.categoryName; changed = true }
                     if keep.categoryIcon != sub.categoryIcon { keep.categoryIcon = sub.categoryIcon; changed = true }
@@ -107,6 +108,7 @@ enum SubscriptionEngine {
                                        note: sub.name,
                                        date: dateInMonth(month, dayFrom: sub.startDate))
                     rec.account = sub.account
+                    rec.ledgerKey = sub.ledgerKey
                     rec.subscriptionUID = sub.uid
                     rec.subscriptionMonthKey = key
                     context.insert(rec)

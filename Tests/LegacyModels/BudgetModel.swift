@@ -11,24 +11,16 @@ import SwiftData
 
 @Model
 final class BudgetModel {
-    /// Nil preserves existing and late-arriving CloudKit records in the life ledger.
-    var bookID: String? = nil
-    var ledgerKey: String {
-        get { bookID ?? LedgerChoice.legacyKey }
-        set { bookID = newValue }
-    }
-
     /// 分类名；空字符串表示总预算
     var categoryName: String = ""
     /// 每月预算金额
     var amount: Double = 0
     var sortOrder: Int = 0
 
-    init(categoryName: String = "", amount: Double, sortOrder: Int = 0, ledgerKey: String = "life") {
+    init(categoryName: String = "", amount: Double, sortOrder: Int = 0) {
         self.categoryName = categoryName
         self.amount = amount
         self.sortOrder = sortOrder
-        self.bookID = ledgerKey
     }
 
     /// 是不是总预算

@@ -10,7 +10,9 @@ import SwiftData
 
 struct BudgetView: View {
     @Environment(\.modelContext) private var modelContext
-    @Query(sort: \BudgetModel.sortOrder) private var budgets: [BudgetModel]
+    @Query(sort: \BudgetModel.sortOrder) private var allBudgets: [BudgetModel]
+    @AppStorage("selectedLedger") private var ledgerKey = LedgerChoice.legacyKey
+    private var budgets: [BudgetModel] { allBudgets.filter { $0.ledgerKey == ledgerKey } }
     @Query private var transactions: [TxRecord]
     @Query(sort: \CategoryModel.sortOrder) private var categories: [CategoryModel]
 
@@ -26,6 +28,7 @@ struct BudgetView: View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: 16) {
+                    HStack { LedgerPicker(); Spacer() }
                     monthHeader
 
                     // 总预算
@@ -70,6 +73,7 @@ struct BudgetView: View {
                 }
                 .padding()
             }
+            .paperScreen()
             .navigationTitle("预算")
             .sheet(item: $editing) { b in
                 BudgetEditView(budget: b)
@@ -104,7 +108,7 @@ struct BudgetView: View {
             Label(title, systemImage: "plus.circle.fill")
                 .frame(maxWidth: .infinity)
                 .padding()
-                .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 16))
+                .background(PaperTheme.surface, in: RoundedRectangle(cornerRadius: 16))
         }
     }
 
@@ -112,7 +116,7 @@ struct BudgetView: View {
 
     private func monthExpense(category: String?) -> Double {
         transactions.filter {
-            $0.type == .expense &&
+            $0.ledgerKey == ledgerKey && $0.type == .expense &&
             Calendar.current.isDate($0.date, equalTo: month, toGranularity: .month) &&
             (category == nil || $0.categoryName == category)
         }
@@ -152,19 +156,19 @@ struct BudgetProgressCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
-                Text("\(icon) \(title)")
+                Label(title, systemImage: title.contains("预算") ? "circle.dashed" : PaperTheme.symbol(title))
                 Spacer()
                 Text(over ? "超支 \((-remaining).asCurrency)" : "剩 \(remaining.asCurrency)")
                     .font(.subheadline)
-                    .foregroundStyle(over ? .red : .secondary)
+                    .foregroundStyle(over ? PaperTheme.warning : Color.secondary)
             }
 
             // 进度条
             GeometryReader { geo in
                 ZStack(alignment: .leading) {
-                    Capsule().fill(Color(.tertiarySystemBackground)).frame(height: 8)
+                    Capsule().fill(PaperTheme.soft).frame(height: 8)
                     Capsule()
-                        .fill(over ? Color.red : Color.accentColor)
+                        .fill(over ? PaperTheme.warning : Color.accentColor)
                         .frame(width: geo.size.width * min(ratio, 1), height: 8)
                 }
             }
@@ -179,16 +183,19 @@ struct BudgetProgressCard: View {
             .foregroundStyle(.secondary)
         }
         .padding()
-        .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 16))
+        .background(PaperTheme.surface, in: RoundedRectangle(cornerRadius: 16))
     }
 }
 
 // MARK: - 新建 / 编辑预算
 
 struct BudgetEditView: View {
+    @State private var saveError: String?
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
-    @Query(sort: \BudgetModel.sortOrder) private var budgets: [BudgetModel]
+    @Query(sort: \BudgetModel.sortOrder) private var allBudgets: [BudgetModel]
+    @AppStorage("selectedLedger") private var ledgerKey = LedgerChoice.legacyKey
+    private var budgets: [BudgetModel] { allBudgets.filter { $0.ledgerKey == ledgerKey } }
     @Query(sort: \CategoryModel.sortOrder) private var categories: [CategoryModel]
 
     var budget: BudgetModel?
@@ -219,7 +226,7 @@ struct BudgetEditView: View {
                         } else {
                             Picker("分类", selection: $selectedCategory) {
                                 ForEach(availableCategories) { c in
-                                    Text("\(c.icon) \(c.name)").tag(c.name)
+                                    Text(c.name).tag(c.name)
                                 }
                             }
                         }
@@ -240,6 +247,7 @@ struct BudgetEditView: View {
                     }
                 }
             }
+            .paperScreen()
             .navigationTitle(titleText)
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -252,6 +260,9 @@ struct BudgetEditView: View {
                 }
             }
             .onAppear(perform: setup)
+            .alert("未能保存", isPresented: Binding(get: { saveError != nil }, set: { if !$0 { saveError = nil } })) {
+                Button("好") { saveError = nil }
+            } message: { Text(saveError ?? "") }
         }
     }
 
@@ -281,13 +292,13 @@ struct BudgetEditView: View {
         if let b = budget {
             b.amount = amount
         } else if isTotal {
-            modelContext.insert(BudgetModel(categoryName: "", amount: amount, sortOrder: -1))
+            modelContext.insert(BudgetModel(categoryName: "", amount: amount, sortOrder: -1, ledgerKey: ledgerKey))
         } else {
             guard !selectedCategory.isEmpty else { return }
             let order = (budgets.map { $0.sortOrder }.max() ?? 0) + 1
-            modelContext.insert(BudgetModel(categoryName: selectedCategory, amount: amount, sortOrder: order))
+            modelContext.insert(BudgetModel(categoryName: selectedCategory, amount: amount, sortOrder: order, ledgerKey: ledgerKey))
         }
-        dismiss()
+        do { try modelContext.save(); dismiss() } catch { modelContext.rollback(); saveError = "预算尚未保存，请重试。" }
     }
 
     private func deleteBudget() {

@@ -13,21 +13,28 @@ struct MoneyNoteApp: App {
     var sharedModelContainer: ModelContainer = {
         let schema = Schema([
             TxRecord.self,
+            LedgerModel.self,
             CategoryModel.self,
             AccountModel.self,
             BudgetModel.self,
             SubscriptionModel.self,
         ])
-        // cloudKitDatabase: .automatic —— 当工程开启了 iCloud(CloudKit) 能力时自动同步；
-        // 没开启能力时退回本地存储，不影响使用。
+        #if DEBUG
+        let preview = ProcessInfo.processInfo.arguments.contains("--preview-data")
+        #else
+        let preview = false
+        #endif
         let modelConfiguration = ModelConfiguration(
             schema: schema,
-            isStoredInMemoryOnly: false,
-            cloudKitDatabase: .automatic
+            isStoredInMemoryOnly: preview,
+            cloudKitDatabase: preview ? .none : .automatic
         )
-
         do {
-            return try ModelContainer(for: schema, configurations: [modelConfiguration])
+            let container = try ModelContainer(for: schema, configurations: [modelConfiguration])
+            #if DEBUG
+            if preview { DemoData.populate(container.mainContext) }
+            #endif
+            return container
         } catch {
             fatalError("Could not create ModelContainer: \(error)")
         }

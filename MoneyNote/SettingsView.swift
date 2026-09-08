@@ -32,15 +32,24 @@ enum AppearanceMode: String, CaseIterable, Identifiable {
 }
 
 struct SettingsView: View {
+    @Query private var ledgers: [LedgerModel]
     @Environment(\.dismiss) private var dismiss
     @AppStorage("appearanceMode") private var appearanceRaw = AppearanceMode.system.rawValue
     @Query(sort: \TxRecord.date, order: .reverse) private var transactions: [TxRecord]
 
     @State private var csvURL: URL?
+    @State private var showCategories = false
+    @State private var showSubscriptions = false
+    @State private var showPinned = false
 
     var body: some View {
         NavigationStack {
             Form {
+                Section("管理") {
+                    Button { showCategories = true } label: { Label("分类管理", systemImage: "square.grid.2x2") }
+                    Button { showSubscriptions = true } label: { Label("订阅管理", systemImage: "arrow.triangle.2.circlepath") }
+                    Button { showPinned = true } label: { Label("关注分类", systemImage: "pin") }
+                }
                 Section("外观") {
                     Picker("外观模式", selection: $appearanceRaw) {
                         ForEach(AppearanceMode.allCases) { mode in
@@ -66,11 +75,12 @@ struct SettingsView: View {
                 }
 
                 Section("关于") {
-                    infoRow("名称", "MoneyNote")
+                    infoRow("名称", "轻账记")
                     infoRow("版本", appVersion)
                     infoRow("账单数", "\(transactions.count) 笔")
                 }
             }
+            .paperScreen()
             .navigationTitle("设置")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -79,6 +89,9 @@ struct SettingsView: View {
                 }
             }
             .onAppear(perform: regenerateCSV)
+            .sheet(isPresented: $showCategories) { CategoryManagerView() }
+            .sheet(isPresented: $showSubscriptions) { SubscriptionsView() }
+            .sheet(isPresented: $showPinned) { PinnedCategoryPicker() }
         }
     }
 
@@ -111,7 +124,7 @@ struct SettingsView: View {
         let df = DateFormatter()
         df.dateFormat = "yyyy-MM-dd HH:mm"
 
-        var rows = ["日期,类型,金额,大类,子类,账户,备注,分期"]
+        var rows = ["日期,类型,金额,大类,子类,账户,账本,备注,分期"]
         for t in transactions {
             let fields = [
                 df.string(from: t.date),
@@ -120,6 +133,7 @@ struct SettingsView: View {
                 t.categoryName,
                 t.subcategoryName,
                 t.account?.name ?? "",
+                LedgerChoice.choices(ledgers).first { $0.id == t.ledgerKey }?.name ?? t.ledgerKey,
                 t.note,
                 t.isInstallment ? "\(t.installmentIndex)/\(t.installmentCount)" : ""
             ]

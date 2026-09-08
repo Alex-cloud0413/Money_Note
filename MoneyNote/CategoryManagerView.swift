@@ -56,6 +56,7 @@ struct CategoryManagerView: View {
                     }
                 }
             }
+            .paperScreen()
             .navigationTitle("分类管理")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

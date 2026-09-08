@@ -28,13 +28,6 @@ enum BillingCycle: String, Codable, CaseIterable {
 
 @Model
 final class SubscriptionModel {
-    /// Nil preserves existing and late-arriving CloudKit records in the life ledger.
-    var bookID: String? = nil
-    var ledgerKey: String {
-        get { bookID ?? LedgerChoice.legacyKey }
-        set { bookID = newValue }
-    }
-
     /// 订阅名称，例如「爱奇艺会员」
     var name: String = ""
     /// 续费周期，底层存字符串（"每月"/"每季"/"每年"）

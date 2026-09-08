@@ -13,7 +13,9 @@ import SwiftData
 struct SubscriptionsView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
-    @Query(sort: \SubscriptionModel.createdAt) private var subscriptions: [SubscriptionModel]
+    @Query(sort: \SubscriptionModel.createdAt) private var allSubscriptions: [SubscriptionModel]
+    @AppStorage("selectedLedger") private var ledgerKey = LedgerChoice.legacyKey
+    private var subscriptions: [SubscriptionModel] { allSubscriptions.filter { $0.ledgerKey == ledgerKey } }
 
     @State private var showingAdd = false
     @State private var editing: SubscriptionModel?
@@ -54,6 +56,7 @@ struct SubscriptionsView: View {
                     }
                 }
             }
+            .paperScreen()
             .navigationTitle("订阅")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -122,10 +125,7 @@ struct SubscriptionRow: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            Text(sub.categoryIcon)
-                .font(.title2)
-                .frame(width: 44, height: 44)
-                .background(Circle().fill(Color(.secondarySystemBackground)))
+            CategoryGlyph(name: sub.categoryName)
 
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
