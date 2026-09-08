@@ -17,7 +17,7 @@
 
 ## 开发
 
-使用 Xcode 打开 `MoneyNote.xcodeproj`，运行 `MoneyNote` scheme。最低 iOS 17，当前验证环境为 Xcode 26.6 / iOS 26.5 Simulator。
+使用 Xcode 打开 `MoneyNote.xcodeproj`，运行 `MoneyNote` scheme。最低 iOS 17，当前验证环境为 Xcode 26.6 / iOS 26.5 Simulator；构建 4 已在 iPhone 17 / iOS 27.0 测试版上完成覆盖升级、启动及旧数据保留核验。
 
 ```sh
 xcodebuild -project MoneyNote.xcodeproj -scheme MoneyNote \
@@ -41,7 +41,7 @@ Debug 运行参数 `--preview-data` 启用隔离的内存示例数据，不打�
 
 旧账目的新增字段 `bookID` 为可空值；空值统一解释为生活账本，兼容尚未升级设备通过 CloudKit 导入的历史记录。预算和订阅采用相同规则，原有账户关系不变。
 
-本地数据迁移检查不等同于 CloudKit 生产验证。发布前需验证真机旧数据升级及 iCloud 同步，并部署新增字段和账本模型对应的生产 Schema。详见 [验证记录](Docs/verification-1.1.md)。
+本地数据迁移及一次真机旧数据升级核验已通过；CloudKit 生产验证仍待完成。发布前需验证多设备 iCloud 同步，并部署新增字段和账本模型对应的生产 Schema。详见 [验证记录](Docs/verification-1.1.md)。
 
 ## 历史
 
