@@ -1,76 +1,8 @@
-//
-//  Calculator.swift
-//  MoneyNote
-//
-//  自定义计算器键盘：带 ＋－×÷，输入时实时算结果。
-//
-
 import SwiftUI
-
-/// 计算金额表达式的小工具
-enum Calc {
-    /// 把表达式字符串算成数字。支持 + - × ÷，带乘除优先级。
-    /// 输入由键盘严格控制（开头是数字、运算符之间夹数字），所以这里不用考虑太乱的情况。
-    static func evaluate(_ raw: String) -> Double? {
-        let s = raw.replacingOccurrences(of: "×", with: "*")
-                   .replacingOccurrences(of: "÷", with: "/")
-
-        // 拆成 [数字, 运算符, 数字, ...]
-        var tokens: [String] = []
-        var current = ""
-        for ch in s {
-            if "+-*/".contains(ch) {
-                tokens.append(current); current = ""
-                tokens.append(String(ch))
-            } else {
-                current.append(ch)
-            }
-        }
-        tokens.append(current)
-        // 去掉末尾可能多出来的运算符（用户停在 "30+"）
-        if tokens.last == "" {
-            tokens.removeLast()
-            if let last = tokens.last, "+-*/".contains(last) { tokens.removeLast() }
-        }
-        guard let first = tokens.first, let f0 = Double(first) else { return nil }
-
-        // 第一遍：先算 × ÷
-        var nums: [Double] = [f0]
-        var ops: [String] = []
-        var i = 1
-        while i + 1 < tokens.count {
-            let op = tokens[i]
-            guard let n = Double(tokens[i + 1]) else { break }
-            switch op {
-            case "*": nums[nums.count - 1] *= n
-            case "/":
-                if n == 0 { return nil }
-                nums[nums.count - 1] /= n
-            default:
-                ops.append(op); nums.append(n)
-            }
-            i += 2
-        }
-        // 第二遍：再算 + −
-        var result = nums[0]
-        for (k, op) in ops.enumerated() {
-            result += (op == "-") ? -nums[k + 1] : nums[k + 1]
-        }
-        return result.isFinite ? result : nil
-    }
-
-    /// 把数字格式化成干净的文字：整数不带小数，否则最多两位
-    static func format(_ value: Double) -> String {
-        if value == value.rounded() {
-            return String(format: "%.0f", value)
-        }
-        return String(format: "%.2f", value)
-            .replacingOccurrences(of: #"0+$"#, with: "", options: .regularExpression)
-    }
-}
 
 /// 计算器键盘视图。text 是正在输入的表达式，onDone 是按「完成」时的动作。
 struct CalculatorKeypad: View {
+    @Environment(\.dynamicTypeSize) private var typeSize
     @Binding var text: String
     /// 为 true 时，按下第一个数字键会先把原内容清空（用于编辑已有金额）
     @Binding var clearOnNextInput: Bool
@@ -89,42 +21,34 @@ struct CalculatorKeypad: View {
         [".", "0", "⌫", "+"],
     ]
 
+    @State private var calculationError: String?
     var body: some View {
         VStack(spacing: 8) {
-            ForEach(keys, id: \.self) { row in
-                HStack(spacing: 8) {
-                    ForEach(row, id: \.self) { key in
-                        keyButton(key)
+            ScrollView {
+                VStack(spacing: 8) {
+                    ForEach(keys, id: \.self) { row in
+                        HStack(spacing: 8) {
+                            ForEach(row, id: \.self) { key in keyButton(key) }
+                        }
                     }
                 }
-            }
-            // 最后一行：清空 + 完成/＝
+            }.scrollBounceBehavior(.basedOnSize)
+            InlineValidation(message: calculationError)
             HStack(spacing: 8) {
-                Button {
-                    text = ""
-                } label: {
-                    Text("清空").keyLabel()
-                }
-                .buttonStyle(.plain)
-                .background(PaperTheme.soft, in: RoundedRectangle(cornerRadius: 12))
-
+                Button { text = ""; clearOnNextInput = false } label: { Text("清空").keyLabel() }
+                    .buttonStyle(PaperKeyStyle(soft: true))
                 Button {
                     if hasOperator {
-                        if let v = Calc.evaluate(text) { text = Calc.format(v) }
-                    } else {
-                        onDone()
-                    }
+                        if let value = Calc.evaluate(text), text.last.map({ !"+-×÷".contains($0) }) == true {
+                            text = Calc.format(value); calculationError = nil
+                        } else { calculationError = "无法计算，请检查算式与除数。" }
+                    } else { onDone() }
                 } label: {
-                    Text(hasOperator ? "＝" : "下一步")
-                        .keyLabel()
-                        .foregroundStyle(PaperTheme.onAccent)
-                }
-                .buttonStyle(.plain)
-                .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 12))
+                    Text(hasOperator ? "计算" : (typeSize.isAccessibilitySize ? "继续" : "下一步")).lineLimit(nil).fixedSize(horizontal: false, vertical: true).frame(maxWidth: .infinity)
+                }.buttonStyle(PrimaryButtonStyle())
             }
-        }
-        .padding(10)
-        .background(PaperTheme.paper)
+        }.padding(10).background(PaperTheme.paper)
+            .onChange(of: text) { _, _ in calculationError = nil }
     }
 
     private func keyButton(_ key: String) -> some View {
@@ -133,11 +57,9 @@ struct CalculatorKeypad: View {
         } label: {
             Text(key).keyLabel()
         }
-        .buttonStyle(.plain)
-        .background(
-            "+-×÷".contains(key) ? PaperTheme.soft : PaperTheme.surface,
-            in: RoundedRectangle(cornerRadius: 12)
-        )
+        .buttonStyle(PaperKeyStyle(soft: "+-×÷".contains(key)))
+        .accessibilityLabel(key == "⌫" ? "删除最后一位" : key == "÷" ? "除以" : key == "×" ? "乘以" : key)
+
     }
 
     /// 处理一次按键
@@ -177,7 +99,19 @@ private extension View {
     func keyLabel() -> some View {
         self.font(.title2)
             .frame(maxWidth: .infinity)
-            .frame(height: 44)
+            .padding(.vertical, 8)
+            .frame(minHeight: 44)
+            .fixedSize(horizontal: false, vertical: true)
             .contentShape(Rectangle())
+    }
+}
+
+private struct PaperKeyStyle: ButtonStyle {
+    var soft = false
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label.foregroundStyle(PaperTheme.ink)
+            .background((soft ? PaperTheme.soft : PaperTheme.surface).opacity(configuration.isPressed ? 0.65 : 1),
+                        in: RoundedRectangle(cornerRadius: 12))
+            .overlay { RoundedRectangle(cornerRadius: 12).stroke(PaperTheme.rule.opacity(0.5), lineWidth: 0.5) }
     }
 }

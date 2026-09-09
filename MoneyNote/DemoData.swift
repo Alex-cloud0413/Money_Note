@@ -6,8 +6,8 @@ import SwiftData
 @MainActor
 enum DemoData {
     static func populate(_ context: ModelContext) {
-        CategoryModel.seedDefaultsIfNeeded(context)
-        AccountModel.seedDefaultsIfNeeded(context)
+        try? CategoryModel.seedDefaultsIfNeeded(context)
+        try? AccountModel.seedDefaultsIfNeeded(context)
         let account = (try? context.fetch(FetchDescriptor<AccountModel>()))?.first
         let samples: [(Double, TransactionType, String, String, String, String, Int)] = [
             (36, .expense, "餐饮", "早餐", "巷口的早餐", "life", 0),

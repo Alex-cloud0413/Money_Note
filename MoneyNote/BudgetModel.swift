@@ -13,6 +13,8 @@ import SwiftData
 final class BudgetModel {
     /// Nil preserves existing and late-arriving CloudKit records in the life ledger.
     var bookID: String? = nil
+    /// Nil is a recurring rule inherited from older versions.
+    var monthKey: String? = nil
     var ledgerKey: String {
         get { bookID ?? LedgerChoice.legacyKey }
         set { bookID = newValue }
@@ -33,4 +35,15 @@ final class BudgetModel {
 
     /// 是不是总预算
     var isTotal: Bool { categoryName.isEmpty }
+}
+
+
+enum BudgetRules {
+    static func effective(_ budgets: [BudgetModel], ledger: String, month: Date) -> [BudgetModel] {
+        let key = SubscriptionEngine.monthKey(month)
+        let candidates = budgets.filter { $0.ledgerKey == ledger && ($0.monthKey == nil || $0.monthKey == key) }
+        return Dictionary(grouping: candidates, by: \.categoryName).compactMap { _, group in
+            group.first { $0.monthKey == key } ?? group.first
+        }.sorted { $0.sortOrder < $1.sortOrder }
+    }
 }

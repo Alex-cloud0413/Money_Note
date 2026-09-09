@@ -20,3 +20,24 @@ A seamless-looking quiet warm ivory cotton paper surface to use as a premium boo
 界面主文字和强调色使用 #000000，图表采用中性灰阶。暖白纸纹保持原样；深色模式使用中性深灰背景和白色前景。图标仍使用内置 imagegen 做局部颜色编辑，输出保存在原 AppIcon 资源路径。
 
 编辑提示词：Edit this existing app icon with exactly one change: convert ALL green / green-gray ink of the notebook outline, spine, entry lines and checkmark to pure neutral black ink (#000000, with only neutral gray where the existing printed paper texture softly modulates it). Preserve the icon geometry, stroke widths, placement, proportions, scale, spacing, softly wrinkled warm ivory paper background and all texture exactly. Keep the warm ivory paper color unchanged. No green tint anywhere in the symbol. No new text, no additional objects, no outer rounded mask. Same square full-bleed opaque iOS icon composition, ready as a 1024x1024 asset.
+
+
+## 构建 5：记账语义与外观变体
+
+使用内置 imagegen 分别编辑三个资源，随后等比例转换为 1024×1024。原纸纹未更换。
+
+- 浅色：`MoneyNote/Assets.xcassets/AppIcon.appiconset/icon.png`
+- 深色：`MoneyNote/Assets.xcassets/AppIcon.appiconset/icon-dark.png`
+- 着色：`MoneyNote/Assets.xcassets/AppIcon.appiconset/icon-tinted.png`
+
+浅色编辑提示词：
+
+Use case: precise-object-edit. Asset: 1024x1024 iOS app icon for Chinese personal bookkeeping app 轻账记. Edit target is the supplied current icon. Keep its centered black rounded notebook silhouette, spine, generous margins, warm ivory paper background and quiet tactile character. Refine ONLY the interior mark: replace the large checkmark with a clean modest yen/yuan ¥ symbol, centered on the lower ledger page; retain two short horizontal ledger lines above it. Make linework crisp, deliberate, legible at small size. Reduce paper grain and creasing inside the black ink so it reads pure black; keep subtle warm paper texture outside. No green or other accent color. Full-bleed square, no rounded external corners baked in, no outer border, no drop shadow, no extra text or logos. Production icon, not mockup.
+
+深色提示词：
+
+Use case: precise-object-edit. Make the dark appearance variant of this exact iOS bookkeeping icon. Preserve EXACT notebook outline, spine, two lines and yuan ¥ mark geometry, position, proportions and generous margins. Change colors only. Full-bleed neutral charcoal #202020 paper background with almost imperceptible matte texture, icon strokes warm off-white #F3F0E8, entirely monochrome. 1024x1024 square. No built-in rounded outer corners, no shadow, no outer border, no text, no green, no added shapes.
+
+着色提示词：
+
+Use case: precise-object-edit. Make the tinted appearance variant of this exact iOS bookkeeping icon. Preserve EXACT notebook outline, spine, two lines and yuan ¥ mark geometry, position, proportions and generous margins. Change colors only. Full-bleed solid pure black background, all notebook and yuan strokes flat pure white, interior same pure black background. No paper grain or gradients. This is a grayscale source for iOS tinted icon rendering. 1024x1024 square. No built-in rounded outer corners, no shadow, no outer border, no text, no green, no added shapes.

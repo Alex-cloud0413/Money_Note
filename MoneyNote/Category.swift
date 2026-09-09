@@ -21,6 +21,15 @@ final class CategoryModel {
     var sortOrder: Int = 0
     /// 跨设备稳定标识，用于多端同步后的去重合并
     var uid: String = ""
+    var archived: Bool? = nil
+    /// Previous names let delayed imports from an older device follow a rename.
+    var previousNames: String? = nil
+    var isArchived: Bool { archived == true || parent?.archived == true }
+    var aliases: [String] {
+        get { previousNames?.components(separatedBy: "\n").filter { !$0.isEmpty } ?? [] }
+        set { previousNames = newValue.isEmpty ? nil : Array(Set(newValue)).sorted().joined(separator: "\n") }
+    }
+    func matches(_ value: String) -> Bool { name == value || aliases.contains(value) }
 
     /// 父分类；大类的 parent 为 nil，子类指向它的大类
     var parent: CategoryModel?
@@ -57,8 +66,8 @@ final class CategoryModel {
     // MARK: - 首次启动写入默认分类
 
     /// 如果库里一条分类都没有，就写入一套默认分类（含示例子类）。
-    static func seedDefaultsIfNeeded(_ context: ModelContext) {
-        let count = (try? context.fetchCount(FetchDescriptor<CategoryModel>())) ?? 0
+    static func seedDefaultsIfNeeded(_ context: ModelContext) throws {
+        let count = try context.fetchCount(FetchDescriptor<CategoryModel>())
         guard count == 0 else { return }
 
         // (大类名, 图标, [子类...])
@@ -100,6 +109,6 @@ final class CategoryModel {
 
         insert(expense, type: .expense)
         insert(income, type: .income)
-        try? context.save()
+        try context.save()
     }
 }

@@ -1,300 +1,211 @@
-//
-//  ContentView.swift
-//  MoneyNote
-//
-//  首页：顶部月度汇总卡片 + 按天分组的账单流水。
-//  点 + 新建；点某一笔进入编辑；左上角进入分类管理。
-//
-
 import SwiftUI
 import SwiftData
 import CoreData
 
 struct ContentView: View {
-    @AppStorage("selectedLedger") private var ledgerKey = LedgerChoice.legacyKey
-    @Query private var subscriptions: [SubscriptionModel]
-    @State private var editingSubscription: SubscriptionModel?
-    @Environment(\.modelContext) private var modelContext
-    // 从数据库读出所有流水，按日期倒序（新的在上面）
+    @Environment(\.modelContext) private var context
+    @EnvironmentObject private var session: AppSession
+    @Environment(\.dynamicTypeSize) private var typeSize
+    @AppStorage("selectedLedger") private var ledger = LedgerChoice.legacyKey
     @Query(sort: \TxRecord.date, order: .reverse) private var transactions: [TxRecord]
-    @Query(sort: \BudgetModel.sortOrder) private var budgets: [BudgetModel]
-
-    @State private var month: Date = .now          // 当前查看的月份，默认当月
+    @Query private var subscriptions: [SubscriptionModel]
+    @Query private var budgets: [BudgetModel]
     @State private var showingAdd = false
     @State private var showingSettings = false
     @State private var editingRecord: TxRecord?
-    @State private var maintenanceTask: Task<Void, Never>? = nil
-
+    @State private var editingSubscription: SubscriptionModel?
+    @State private var maintenanceTask: Task<Void, Never>?
+    private var records: [TxRecord] { LedgerAnalytics.records(transactions, ledger: ledger, month: session.month) }
+    private var expense: Double { records.filter { $0.type == .expense }.reduce(0) { $0 + $1.amount } }
+    private var income: Double { records.filter { $0.type == .income }.reduce(0) { $0 + $1.amount } }
+    private var planned: [TxRecord] { records.filter { $0.date > .now } }
+    private var byDay: [Date: [TxRecord]] { Dictionary(grouping: records) { Calendar.current.startOfDay(for: $0.date) } }
+    private var initialDate: Date {
+        if Calendar.current.isDate(session.month, equalTo: .now, toGranularity: .month) { return .now }
+        var parts = Calendar.current.dateComponents([.year, .month], from: session.month)
+        parts.day = min(Calendar.current.component(.day, from: .now), Calendar.current.range(of: .day, in: .month, for: session.month)?.count ?? 28)
+        parts.hour = 12
+        return Calendar.current.date(from: parts) ?? session.month
+    }
     var body: some View {
         NavigationStack {
-            VStack(spacing: 0) {
-                HStack { LedgerPicker(); Spacer() }.padding(.horizontal, 20)
-                monthHeader
-                PinnedCategoryCards(records: monthRecords)
-                if monthRecords.isEmpty {
-                    emptyView
-                } else {
-                    List {
-                        Section {
-                            MonthSummaryCard(expense: monthExpense, income: monthIncome)
-                                .listRowInsets(EdgeInsets())
-                                .listRowBackground(Color.clear)
-
-                            if let tb = totalBudget {
-                                BudgetProgressCard(title: "总预算", icon: "🎯",
-                                                   spent: monthExpense, limit: tb.amount)
-                                    .listRowInsets(EdgeInsets(top: 0, leading: 0, bottom: 8, trailing: 0))
-                                    .listRowBackground(Color.clear)
-                            }
+            GeometryReader { geometry in
+                let wide = geometry.size.width >= 800 && !typeSize.isAccessibilitySize
+                VStack(spacing: 0) {
+                    AdaptiveRow { LedgerPicker(); AdaptiveSpacer(); MonthPicker(month: $session.month).frame(maxWidth: 350) }
+                        .padding(.horizontal, 20)
+                    if wide {
+                        HStack(alignment: .top, spacing: 4) {
+                            ScrollView { summary.padding(20) }.frame(width: min(380, geometry.size.width * 0.34))
+                            recordList(includeSummary: false)
                         }
-
-                        ForEach(sortedDays, id: \.self) { day in
-                            Section {
-                                ForEach(transactionsByDay[day] ?? []) { tx in
-                                    Button {
-                                        if tx.isSubscription, let sub = subscriptions.first(where: { $0.uid == tx.subscriptionUID }) {
-                                            editingSubscription = sub
-                                        } else { editingRecord = tx }
-                                    } label: {
-                                        TransactionRow(transaction: tx)
-                                    }
-                                    .buttonStyle(.plain)
-                                    .listRowBackground(PaperTheme.surface.opacity(0.85))
-                                }
-                                .onDelete { offsets in delete(day: day, offsets: offsets) }
-                            } header: {
-                                DayHeader(day: day, total: dayTotal(day))
-                            }
-                        }
+                    } else { recordList(includeSummary: true) }
+                }.readableWidth(1200)
+            }.paperScreen().navigationTitle("轻账记").navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .topBarLeading) {
+                        Button { showingSettings = true } label: { Image(systemName: "gearshape") }.accessibilityLabel("设置")
                     }
-                    .scrollContentBackground(.hidden)
-                    .listStyle(.insetGrouped)
-                    .contentMargins(.top, 0, for: .scrollContent)
-                }
-            }
-            .paperScreen()
-            .navigationTitle("轻账记")
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button {
-                        showingSettings = true
-                    } label: {
-                        Image(systemName: "gearshape").accessibilityLabel("设置")
+                    ToolbarItem(placement: .topBarTrailing) {
+                        Button { showingAdd = true } label: { Label("记一笔", systemImage: "plus") }
+                            .accessibilityIdentifier("addTransaction")
                     }
                 }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button {
-                        showingAdd = true
-                    } label: {
-                        Image(systemName: "plus").font(.title3).accessibilityLabel("记一笔").accessibilityIdentifier("addTransaction")
-                    }
-                }
-            }
-            .sheet(isPresented: $showingAdd) {
-                TransactionEditor()
-            }
-            .sheet(item: $editingSubscription) { SubscriptionEditor(editing: $0) }
-            .sheet(item: $editingRecord) { record in
-                TransactionEditor(editing: record)
-            }
-            .sheet(isPresented: $showingSettings) {
-                SettingsView()
-            }
+                .sheet(isPresented: $showingAdd) { TransactionEditor(initialDate: initialDate) }
+                .sheet(item: $editingRecord) { TransactionEditor(editing: $0) }
+                .sheet(item: $editingSubscription) { SubscriptionEditor(editing: $0) }
+                .sheet(isPresented: $showingSettings) { SettingsView() }
         }
-        // 首次启动写入默认分类和默认账户，做一次去重，并补齐订阅平摊流水
-        .task {
-            CategoryModel.seedDefaultsIfNeeded(modelContext)
-            AccountModel.seedDefaultsIfNeeded(modelContext)
-            DataMaintenance.deduplicate(modelContext)
-            SubscriptionEngine.sync(modelContext, upTo: month)
-        }
-        // 翻到未来月份时，按需把订阅平摊记录补到该月
-        .onChange(of: month) { _, newMonth in
-            if newMonth > .now {
-                SubscriptionEngine.sync(modelContext, upTo: newMonth)
-            }
-        }
-        // iCloud 同步把云端数据导入后，再清一次重复并同步订阅。
-        // iCloud 初次导入会连续触发很多次通知，这里用防抖合并成停下来后只跑一次，避免卡主线程。
+        .task { maintain() }
+        .onChange(of: session.month) { _, month in sync(upTo: month) }
         .onReceive(NotificationCenter.default.publisher(for: .NSPersistentStoreRemoteChange)) { _ in
             maintenanceTask?.cancel()
             maintenanceTask = Task { @MainActor in
                 try? await Task.sleep(for: .milliseconds(600))
                 guard !Task.isCancelled else { return }
-                DataMaintenance.deduplicate(modelContext)
-                SubscriptionEngine.sync(modelContext, upTo: month)
+                maintain()
             }
         }
     }
-
-    // MARK: - 月份切换（可往未来翻）
-
-    private var monthHeader: some View {
-        MonthPicker(month: $month).padding(.horizontal, 16)
-    }
-
-    // MARK: - 空状态
-
-    private var emptyView: some View {
-        ContentUnavailableView {
-            Label("本月还没有记账", systemImage: "yensign.circle")
-        } description: {
-            Text("点右上角的 + 记一笔，或左右切换月份")
-        } actions: {
-            Button("记一笔") { showingAdd = true }
-                .buttonStyle(.borderedProminent).foregroundStyle(PaperTheme.onAccent)
-        }
-        .frame(maxHeight: .infinity)
-    }
-
-    // MARK: - 分组与统计（只统计所选月份）
-
-    /// 当月总预算（若设置了）
-    private var totalBudget: BudgetModel? { budgets.first { $0.isTotal && $0.ledgerKey == ledgerKey } }
-
-    /// 所选月份的流水
-    private var monthRecords: [TxRecord] {
-        transactions.filter {
-            $0.ledgerKey == ledgerKey && Calendar.current.isDate($0.date, equalTo: month, toGranularity: .month)
+    private var summary: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            MonthSummaryCard(expense: expense, income: income)
+            if !planned.isEmpty {
+                Text("包含 \(planned.count) 笔计划账目，尚未计入当前账户余额。")
+                    .font(.footnote).foregroundStyle(.secondary)
+            }
+            if let budget = BudgetRules.effective(budgets, ledger: ledger, month: session.month).first(where: { $0.isTotal }) {
+                BudgetProgressCard(title: "总预算", icon: "circle.dashed", spent: expense, limit: budget.amount)
+            }
+            PinnedCategoryCards(records: records)
         }
     }
-
-    private var transactionsByDay: [Date: [TxRecord]] {
-        Dictionary(grouping: monthRecords) {
-            Calendar.current.startOfDay(for: $0.date)
+    private func recordList(includeSummary: Bool) -> some View {
+        ScrollViewReader { reader in
+            PaperList {
+                if includeSummary {
+                    Section { summary.listRowInsets(EdgeInsets()).listRowBackground(Color.clear) }
+                }
+                if records.isEmpty {
+                    Section {
+                        ContentUnavailableView {
+                            Label("所选月份还没有账目", systemImage: "yensign.circle")
+                        } description: { Text("新账会默认记在上方所选月份。") } actions: {
+                            Button("记一笔") { showingAdd = true }.buttonStyle(PrimaryButtonStyle())
+                        }.listRowBackground(Color.clear)
+                    }
+                }
+                ForEach(byDay.keys.sorted(by: >), id: \.self) { day in
+                    Section {
+                        ForEach(byDay[day] ?? []) { record in
+                            Button { edit(record) } label: { TransactionRow(transaction: record) }
+                                .buttonStyle(.plain).listRowBackground(PaperTheme.surface)
+                                .id(record.persistentModelID)
+                                .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                    if record.isSubscription {
+                                        Button("管理订阅") { edit(record) }.tint(PaperTheme.accent)
+                                    } else {
+                                        Button("删除", role: .destructive) { session.delete([record], in: context) }
+                                    }
+                                }
+                        }
+                    } header: {
+                        DayHeader(day: day, total: (byDay[day] ?? []).reduce(0) { $0 + $1.signedAmount })
+                    }
+                }
+            }.listStyle(.insetGrouped).scrollContentBackground(.hidden)
+                .contentMargins(.top, 8, for: .scrollContent)
+                .onChange(of: session.selectedRecord) { _, record in
+                    if let record { reader.scrollTo(record, anchor: .center) }
+                }
         }
     }
-
-    private var sortedDays: [Date] {
-        transactionsByDay.keys.sorted(by: >)
+    private func edit(_ record: TxRecord) {
+        if record.isSubscription, let sub = subscriptions.first(where: { $0.uid == record.subscriptionUID }) {
+            editingSubscription = sub
+        } else { editingRecord = record }
     }
-
-    private func dayTotal(_ day: Date) -> Double {
-        (transactionsByDay[day] ?? []).reduce(0) { $0 + $1.signedAmount }
-    }
-
-    private var monthExpense: Double {
-        monthRecords.filter { $0.type == .expense }.reduce(0) { $0 + $1.amount }
-    }
-
-    private var monthIncome: Double {
-        monthRecords.filter { $0.type == .income }.reduce(0) { $0 + $1.amount }
-    }
-
-    // MARK: - 删除
-
-    private func delete(day: Date, offsets: IndexSet) {
-        let dayItems = transactionsByDay[day] ?? []
-        for index in offsets {
-            modelContext.delete(dayItems[index])
+    private func maintain() {
+        do {
+            try CategoryModel.seedDefaultsIfNeeded(context); try AccountModel.seedDefaultsIfNeeded(context)
+            try DataMaintenance.deduplicate(context)
+            try SubscriptionEngine.sync(context, upTo: session.month)
         }
+        catch { context.rollback(); session.failed("账目整理尚未完成，请稍后重新打开 App。") }
+    }
+    private func sync(upTo date: Date) {
+        do { try SubscriptionEngine.sync(context, upTo: date) }
+        catch { context.rollback(); session.failed("订阅平摊尚未更新，请稍后重试。") }
     }
 }
-
-// MARK: - 本月汇总卡片
 
 struct MonthSummaryCard: View {
     let expense: Double
     let income: Double
-    var balance: Double { income - expense }
-
     var body: some View {
-        VStack(alignment: .leading, spacing: 20) {
-            HStack {
-                Text("本月结余").font(.subheadline).foregroundStyle(.secondary)
-                Spacer()
-                Image(systemName: "leaf").foregroundStyle(PaperTheme.accent)
+        VStack(alignment: .leading, spacing: 16) {
+            Text("所选月份结余").font(.subheadline).foregroundStyle(.secondary)
+            MoneyText(value: income - expense, style: .largeTitle)
+            Divider()
+            AdaptiveRow {
+                item("支出", expense)
+                AdaptiveSpacer()
+                item("收入", income)
             }
-            Text(balance.asCurrency)
-                .font(.system(size: 36, weight: .regular, design: .serif)).monospacedDigit()
-                .lineLimit(1).minimumScaleFactor(0.65)
-            Divider().overlay(PaperTheme.rule)
-            HStack {
-                summaryItem(title: "支出", value: expense)
-                Spacer()
-                summaryItem(title: "收入", value: income)
-            }
-        }
-        .padding(24).frame(maxWidth: .infinity, alignment: .leading)
-        .paperCard().padding(.vertical, 8)
+        }.padding(20).frame(maxWidth: .infinity, alignment: .leading).paperCard()
     }
-
-    private func summaryItem(title: String, value: Double) -> some View {
-        VStack(alignment: .leading, spacing: 7) {
+    private func item(_ title: String, _ value: Double) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
             Text(title).font(.caption).foregroundStyle(.secondary)
-            Text(value.asCurrency).font(.headline).monospacedDigit()
+            MoneyText(value: value, style: .headline)
         }
     }
 }
 
-// MARK: - 某天的分组标题
+struct MoneyText: View {
+    let value: Double
+    var style: Font.TextStyle = .body
+    var prefix = ""
+    var body: some View {
+        ViewThatFits(in: .horizontal) {
+            Text(prefix + value.asCurrency).font(.system(style, design: .serif)).monospacedDigit().fixedSize()
+            ScrollView(.horizontal, showsIndicators: false) {
+                Text(prefix + value.asCurrency).font(.system(style, design: .serif)).monospacedDigit().fixedSize()
+            }
+        }.accessibilityElement(children: .ignore).accessibilityLabel(prefix + value.asCurrency)
+    }
+}
 
 struct DayHeader: View {
-    let day: Date
-    let total: Double
-
+    let day: Date; let total: Double
     var body: some View {
-        HStack {
-            Text(day.asDayTitle)
-            Spacer()
-            Text(total >= 0 ? "结余 \(total.asCurrency)" : "支出 \((-total).asCurrency)")
-        }
-        .font(.caption)
-        .foregroundStyle(.secondary)
+        AdaptiveRow { Text(day.asDayTitle); AdaptiveSpacer(); Text("净收支 \(total.asCurrency)") }
+            .font(.caption).foregroundStyle(.secondary)
     }
 }
 
-// MARK: - 单条流水
-
 struct TransactionRow: View {
+    @Environment(\.dynamicTypeSize) private var typeSize
     let transaction: TxRecord
-
     var body: some View {
-        HStack(spacing: 12) {
-            CategoryGlyph(name: transaction.categoryName)
-
-            VStack(alignment: .leading, spacing: 2) {
-                HStack(spacing: 6) {
-                    Text(transaction.displayCategory)
-                        .font(.body)
-                    if transaction.isInstallment {
-                        Text("分期 \(transaction.installmentIndex)/\(transaction.installmentCount)")
-                            .font(.caption2)
-                            .padding(.horizontal, 6).padding(.vertical, 2)
-                            .background(Capsule().fill(PaperTheme.soft))
-                            .foregroundStyle(PaperTheme.accent)
-                    }
-                    if transaction.isSubscription {
-                        Text("订阅")
-                            .font(.caption2)
-                            .padding(.horizontal, 6).padding(.vertical, 2)
-                            .background(Capsule().fill(Color.accentColor.opacity(0.18)))
-                            .foregroundStyle(Color.accentColor)
-                    }
-                }
-                if transaction.account != nil || !transaction.note.isEmpty {
-                    HStack(spacing: 6) {
-                        if let acc = transaction.account {
-                            Text(acc.name)
-                        }
-                        if !transaction.note.isEmpty {
-                            Text(transaction.note)
-                        }
-                    }
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+        AdaptiveRow {
+            HStack(alignment: .top, spacing: 10) {
+                CategoryGlyph(name: transaction.categoryName, icon: transaction.categoryIcon)
+                VStack(alignment: .leading, spacing: 5) {
+                    Text(transaction.displayCategory).font(.body).fixedSize(horizontal: false, vertical: true)
+                    if !detail.isEmpty { Text(detail).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true) }
                 }
             }
-
-            Spacer()
-
-            Text(transaction.type == .expense
-                 ? "-\(transaction.amount.asCurrency)"
-                 : "+\(transaction.amount.asCurrency)")
-                .font(.system(.body, design: .rounded))
-                .fontWeight(.medium)
-                .foregroundStyle(transaction.type == .expense ? Color.primary : PaperTheme.accent)
-        }
-        .padding(.vertical, 2)
+            if !typeSize.isAccessibilitySize { AdaptiveSpacer() }
+            MoneyText(value: transaction.amount, prefix: transaction.type == .expense ? "−" : "+")
+                .frame(maxWidth: typeSize.isAccessibilitySize ? .infinity : 185, alignment: .trailing)
+        }.padding(.vertical, 6).accessibilityElement(children: .combine)
+    }
+    private var detail: String {
+        var parts = [transaction.account?.name ?? "", transaction.note].filter { !$0.isEmpty }
+        if transaction.isInstallment { parts.append("分期 \(transaction.installmentIndex)/\(transaction.installmentCount)") }
+        if transaction.isSubscription { parts.append("订阅平摊") }
+        if transaction.date > .now { parts.append("计划") }
+        return parts.joined(separator: " · ")
     }
 }

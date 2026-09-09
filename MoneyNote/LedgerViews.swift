@@ -22,10 +22,12 @@ struct LedgerPicker: View {
         }
         .accessibilityIdentifier("ledgerPicker")
         .accessibilityLabel("切换账本")
+        .accessibilityValue(choices.first { $0.id == selected }?.name ?? "生活账本")
     }
 }
 
 struct LedgersView: View {
+    @EnvironmentObject private var session: AppSession
     @Query private var models: [LedgerModel]
     @Query private var records: [TxRecord]
     @AppStorage("selectedLedger") private var selected = LedgerChoice.legacyKey
@@ -39,6 +41,7 @@ struct LedgersView: View {
                 VStack(alignment: .leading, spacing: 18) {
                     Text("把生活与事业，各自记好。")
                         .font(.subheadline).foregroundStyle(.secondary)
+                    MonthPicker(month: $session.month)
                     ForEach(LedgerChoice.choices(models)) { book in
                         VStack(alignment: .leading, spacing: 20) {
                             HStack {
@@ -50,21 +53,21 @@ struct LedgersView: View {
                                     Image(systemName: "ellipsis").frame(width: 44, height: 44)
                                 }.accessibilityLabel("编辑" + book.name)
                             }
-                            let entries = LedgerAnalytics.records(records, ledger: book.id, month: .now)
-                            HStack(alignment: .bottom) {
+                            let entries = LedgerAnalytics.records(records, ledger: book.id, month: session.month)
+                            AdaptiveRow {
                                 VStack(alignment: .leading, spacing: 5) {
-                                    Text("本月支出").font(.caption).foregroundStyle(.secondary)
+                                    Text("所选月份支出").font(.caption).foregroundStyle(.secondary)
                                     Text(entries.filter { $0.type == .expense }.reduce(0) { $0 + $1.amount }.asCurrency)
                                         .font(.system(.title, design: .serif)).monospacedDigit()
                                 }
-                                Spacer()
-                                Button { selected = book.id } label: {
-                                    Label(selected == book.id ? "当前账本" : "使用账本",
+                                AdaptiveSpacer()
+                                Button { selected = book.id; session.selection = 0 } label: {
+                                    Label("进入账本",
                                           systemImage: selected == book.id ? "checkmark.circle.fill" : "arrow.right")
                                         .font(.subheadline).padding(.vertical, 10)
                                 }
                             }
-                            Text("本月 \(entries.count) 笔记录")
+                            Text("所选月份 \(entries.count) 笔记录")
                                 .font(.caption).foregroundStyle(.secondary)
                         }
                         .padding(22).paperCard()
@@ -77,13 +80,13 @@ struct LedgersView: View {
                             Label("资金账户", systemImage: "creditcard")
                             Spacer()
                             Image(systemName: "chevron.right").font(.caption)
-                        }.padding(20)
+                        }.padding(20).readableWidth()
                     }.paperCard()
                     Text("账本区分用途，账户记录收付来源。同一个账户可以用于不同账本。")
                         .font(.footnote).foregroundStyle(.secondary).padding(.horizontal, 4)
-                }.padding(20)
+                }.padding(20).readableWidth()
             }
-            .paperScreen().navigationTitle("账本")
+            .paperScreen().navigationTitle("账本").navigationBarTitleDisplayMode(.inline)
             .sheet(isPresented: $adding) { LedgerEditor() }
             .sheet(item: $editing) { LedgerEditor(editing: $0) }
             .sheet(isPresented: $accounts) { AccountsView() }
@@ -92,6 +95,10 @@ struct LedgersView: View {
 }
 
 struct LedgerEditor: View {
+    @EnvironmentObject private var session: AppSession
+    @State private var baseline = ""
+    @State private var setupDone = false
+    @State private var discard = false
     @Environment(\.dismiss) private var dismiss
     @Environment(\.modelContext) private var context
     @Query private var models: [LedgerModel]
@@ -105,8 +112,13 @@ struct LedgerEditor: View {
     }
     var body: some View {
         NavigationStack {
-            Form {
-                Section("账本名称") { TextField("如：生活账本、事业账本", text: $name) }
+            PaperForm {
+                Section("账本名称") {
+                    TextField("如：生活账本、事业账本", text: $name)
+                    if !cleanName.isEmpty && !valid {
+                        InlineValidation(message: cleanName.count > 24 ? "名称最多 24 个字。" : "已有同名账本，请换一个名称。")
+                    }
+                }
                 Section {
                     Text("明细、统计和预算会按账本分别展示。更改名称不会影响已有账目。")
                         .font(.footnote).foregroundStyle(.secondary)
@@ -115,10 +127,11 @@ struct LedgerEditor: View {
                 .navigationTitle(editing == nil ? "新建账本" : "编辑账本")
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
-                    ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() } }
+                    ToolbarItem(placement: .cancellationAction) { Button("取消") { if name != baseline { discard = true } else { dismiss() } } }
                     ToolbarItem(placement: .confirmationAction) { Button("完成", action: save).disabled(!valid) }
                 }
-                .onAppear { name = editing?.name ?? "" }
+                .onAppear { guard !setupDone else { return }; name = editing?.name ?? ""; baseline = name; setupDone = true }
+                .protectDraft(setupDone && name != baseline, confirming: $discard) { dismiss() }
                 .alert("未能保存", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) {
                     Button("好") { error = nil }
                 } message: { Text(error ?? "") }
@@ -132,6 +145,6 @@ struct LedgerEditor: View {
         } else {
             context.insert(LedgerModel(key: editing?.id ?? UUID().uuidString, name: cleanName))
         }
-        do { try context.save(); dismiss() } catch { self.error = "请稍后重试，账本尚未保存。" }
+        do { try context.save(); session.saved("账本已保存"); dismiss() } catch { context.rollback(); self.error = "请稍后重试，账本尚未保存。" }
     }
 }

@@ -28,7 +28,7 @@ struct MigrationChecks {
         let subs = try context.fetch(FetchDescriptor<SubscriptionModel>())
         precondition(budgets[0].ledgerKey == "life" && budgets[0].amount == 500)
         precondition(subs[0].ledgerKey == "life" && subs[0].account?.name == "测试账户")
-        print("PASS: real 1.0 to 1.1 lightweight migration preserves all old fields and relationships")
+        print("PASS: real 1.0 to 1.2 lightweight migration preserves all old fields and relationships")
 
         let work = TxRecord(amount: 200, type: .expense, categoryName: "餐饮", categoryIcon: "", subcategoryName: "早餐", note: "事业测试")
         work.ledgerKey = "work"; work.account = accounts[0]; context.insert(work)
@@ -51,13 +51,13 @@ struct MigrationChecks {
         print("PASS: ledger, month and type isolation; subcategory percentages include unassigned records")
 
         subs[0].ledgerKey = "work"
-        SubscriptionEngine.sync(context)
+        try SubscriptionEngine.sync(context)
         let generated = try context.fetch(FetchDescriptor<TxRecord>()).filter { $0.subscriptionUID == subs[0].uid }
         precondition(generated.count == 1 && generated[0].ledgerKey == "work")
-        SubscriptionEngine.sync(context)
+        try SubscriptionEngine.sync(context)
         let synced = try context.fetch(FetchDescriptor<TxRecord>())
         precondition(synced.filter { $0.subscriptionUID == subs[0].uid }.count == 1)
-        subs[0].ledgerKey = "life"; SubscriptionEngine.sync(context)
+        subs[0].ledgerKey = "life"; try SubscriptionEngine.sync(context)
         precondition(generated[0].ledgerKey == "life")
         print("PASS: subscription records inherit the ledger, stay idempotent and follow subscription edits")
 

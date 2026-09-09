@@ -35,6 +35,8 @@ final class AccountModel {
     var sortOrder: Int = 0
     /// 跨设备稳定标识，用于多端同步后的去重合并
     var uid: String = ""
+    var archived: Bool? = nil
+    var isArchived: Bool { archived == true }
 
     /// 属于这个账户的所有流水。删账户时把流水的 account 置空（保留流水）。
     @Relationship(deleteRule: .nullify, inverse: \TxRecord.account)
@@ -61,16 +63,21 @@ final class AccountModel {
 
     /// 实时余额 = 初始余额 + 该账户所有流水的带符号金额
     var balance: Double {
-        initialBalance + (records ?? []).reduce(0) { $0 + $1.signedAmount }
+        balance(asOf: .now)
+    }
+
+    func balance(asOf date: Date) -> Double {
+        initialBalance + (records ?? []).filter { !$0.isTrashed && $0.date <= date }
+            .reduce(0) { $0 + $1.signedAmount }
     }
 
     // MARK: - 首次启动写入默认账户
 
-    static func seedDefaultsIfNeeded(_ context: ModelContext) {
-        let count = (try? context.fetchCount(FetchDescriptor<AccountModel>())) ?? 0
+    static func seedDefaultsIfNeeded(_ context: ModelContext) throws {
+        let count = try context.fetchCount(FetchDescriptor<AccountModel>())
         guard count == 0 else { return }
         context.insert(AccountModel(name: "现金", icon: "💵", type: .cash, sortOrder: 0))
         context.insert(AccountModel(name: "银行卡", icon: "🏦", type: .bank, sortOrder: 1))
-        try? context.save()
+        try context.save()
     }
 }

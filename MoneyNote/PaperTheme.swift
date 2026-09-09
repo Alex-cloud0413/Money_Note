@@ -22,6 +22,18 @@ enum PaperTheme {
         adaptive(UInt32($0), UInt32(0xFFFFFF - $0))
     }
 
+    static func glyphSymbol(icon: String, name: String) -> String? {
+        if !icon.isEmpty, UIImage(systemName: icon) != nil { return icon }
+        let legacy = ["🍜": "fork.knife", "🛍️": "bag", "🚗": "tram", "🏠": "house",
+                      "🎮": "headphones", "💊": "cross.case", "📚": "book", "📱": "phone",
+                      "✈️": "airplane", "🎁": "gift", "🐾": "pawprint", "💸": "banknote",
+                      "💰": "briefcase", "🏆": "trophy", "💼": "briefcase", "📈": "chart.line.uptrend.xyaxis",
+                      "🧧": "gift", "↩️": "arrow.uturn.backward", "🪙": "banknote", "💵": "banknote",
+                      "🏦": "creditcard", "💳": "creditcard", "👛": "wallet.bifold", "🏷️": "tag", "🔁": "arrow.triangle.2.circlepath"]
+        if let mapped = legacy[icon] { return mapped }
+        return icon.isEmpty ? symbol(name) : nil
+    }
+
     static func symbol(_ name: String) -> String {
         switch name {
         case "餐饮", "饮食", "吃饭": return "fork.knife"
@@ -70,14 +82,19 @@ struct PaperBackground: View {
 
 struct CategoryGlyph: View {
     let name: String
+    var icon: String = ""
     var size: CGFloat = 42
     var body: some View {
-        Image(systemName: PaperTheme.symbol(name))
-            .font(.system(size: size * 0.43, weight: .regular))
-            .foregroundStyle(PaperTheme.ink)
-            .frame(width: size, height: size)
-            .background(PaperTheme.soft, in: RoundedRectangle(cornerRadius: size * 0.3))
-            .accessibilityHidden(true)
+        Group {
+            if let symbol = PaperTheme.glyphSymbol(icon: icon, name: name) {
+                Image(systemName: symbol)
+            } else { Text(icon) }
+        }
+        .font(.system(size: size * 0.43, weight: .regular))
+        .foregroundStyle(PaperTheme.ink)
+        .frame(width: size, height: size)
+        .background(PaperTheme.soft, in: RoundedRectangle(cornerRadius: size * 0.3))
+        .accessibilityHidden(true)
     }
 }
 
@@ -85,7 +102,7 @@ extension View {
     func paperScreen() -> some View {
         self.scrollContentBackground(.hidden)
             .background { PaperBackground() }
-            .toolbarBackground(.hidden, for: .navigationBar)
+            .listRowBackground(PaperTheme.surface)
             .foregroundStyle(PaperTheme.ink)
             .tint(PaperTheme.accent)
     }

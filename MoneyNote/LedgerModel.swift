@@ -45,7 +45,7 @@ enum LedgerAnalytics {
     static func records(_ records: [TxRecord], ledger: String, month: Date,
                         type: TransactionType? = nil, parent: String? = nil) -> [TxRecord] {
         records.filter {
-            $0.ledgerKey == ledger &&
+            !$0.isTrashed && $0.ledgerKey == ledger &&
             Calendar.current.isDate($0.date, equalTo: month, toGranularity: .month) &&
             (type == nil || $0.type == type) && (parent == nil || $0.categoryName == parent)
         }

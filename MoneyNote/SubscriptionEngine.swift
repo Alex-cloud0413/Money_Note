@@ -41,12 +41,12 @@ enum SubscriptionEngine {
     /// 同步所有订阅：补齐/更新从开通月到当前月的每月平摊流水，并清理重复。
     /// 在 App 启动、iCloud 远程变更、以及新增/编辑订阅后调用。
     /// viewMonth：用户正在查看的月份；翻到未来月份时会把订阅平摊记录补到该月。
-    static func sync(_ context: ModelContext, upTo viewMonth: Date = .now) {
-        let subs = (try? context.fetch(FetchDescriptor<SubscriptionModel>())) ?? []
+    static func sync(_ context: ModelContext, upTo viewMonth: Date = .now, saving: Bool = true, rewriteAmounts: Bool = false) throws {
+        let subs = try context.fetch(FetchDescriptor<SubscriptionModel>())
         guard !subs.isEmpty else { return }
 
         // 一次取出所有「订阅生成」的流水，按 uid 分组
-        let allRecords = (try? context.fetch(FetchDescriptor<TxRecord>())) ?? []
+        let allRecords = try context.fetch(FetchDescriptor<TxRecord>())
         var recordsByUID: [String: [TxRecord]] = [:]
         for r in allRecords where !r.subscriptionUID.isEmpty {
             recordsByUID[r.subscriptionUID, default: []].append(r)
@@ -85,12 +85,15 @@ enum SubscriptionEngine {
                 let monthsSinceStart = cal.dateComponents([.month], from: startMonth, to: month).month ?? 0
                 let periodIndex = monthsSinceStart / cycleMonths
                 let periodAmount = (periodIndex == 0) ? sub.firstAmount : sub.amount
-                let amt = ((periodAmount / Double(cycleMonths)) * 100).rounded() / 100
+                guard periodAmount.isFinite, periodAmount >= 0, periodAmount < 1_000_000_000 else { break }
+                let cents = Int((periodAmount * 100).rounded())
+                let offset = monthsSinceStart % cycleMonths
+                let amt = Double(cents / cycleMonths + (offset < cents % cycleMonths ? 1 : 0)) / 100
 
                 if let recs = existing[key], let keep = recs.first {
                     // 已有：仅当值真的变了才赋值（保持幂等，避免反复变脏触发多余保存/同步抖动）
                     if keep.ledgerKey != sub.ledgerKey { keep.ledgerKey = sub.ledgerKey; changed = true }
-                    if keep.amount != amt { keep.amount = amt; changed = true }
+                    if rewriteAmounts && keep.amount != amt { keep.amount = amt; changed = true }
                     if keep.categoryName != sub.categoryName { keep.categoryName = sub.categoryName; changed = true }
                     if keep.categoryIcon != sub.categoryIcon { keep.categoryIcon = sub.categoryIcon; changed = true }
                     if keep.subcategoryName != sub.subcategoryName { keep.subcategoryName = sub.subcategoryName; changed = true }
@@ -120,13 +123,13 @@ enum SubscriptionEngine {
             }
         }
 
-        if changed { try? context.save() }
+        if changed && saving { try context.save() }
     }
 
     /// 删除某个订阅时，连同它生成的所有流水一起删除。
-    static func deleteRecords(for sub: SubscriptionModel, in context: ModelContext) {
+    static func deleteRecords(for sub: SubscriptionModel, in context: ModelContext) throws {
         let uid = sub.uid
-        let all = (try? context.fetch(FetchDescriptor<TxRecord>())) ?? []
+        let all = try context.fetch(FetchDescriptor<TxRecord>())
         for r in all where r.subscriptionUID == uid {
             context.delete(r)
         }

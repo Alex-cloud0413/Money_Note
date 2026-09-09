@@ -9,6 +9,27 @@ import SwiftUI
 import SwiftData
 
 struct SubscriptionEditor: View {
+    @EnvironmentObject private var session: AppSession
+    @Query private var records: [TxRecord]
+    @State private var baseline = ""
+    @State private var discard = false
+    @State private var showStopConfirm = false
+    private var fingerprint: String {
+        [name, cycle.rawValue, String(amount ?? -1), String(hasPromo), String(firstAmount ?? -1),
+         String(startDate.timeIntervalSince1970), selectedParent?.uid ?? "", selectedChild?.uid ?? "",
+         selectedAccount?.uid ?? "", ledgerKey, note, String(isActive)].joined(separator: "|")
+    }
+    private var keepsLegacyCategory: Bool { editing != nil && selectedParent == nil }
+    private var affectedCount: Int { records.filter { $0.subscriptionUID == editing?.uid }.count }
+    private var validation: String? {
+        if name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return "请填写订阅名称。" }
+        guard let amount, amount.isFinite, amount >= 0.01, amount < 1_000_000_000 else { return "请填写有效的每期金额，至少 0.01 元。" }
+        if hasPromo {
+            guard let firstAmount, firstAmount.isFinite, firstAmount >= 0, firstAmount < 1_000_000_000 else { return "首期优惠金额需为有效金额，可以为 0。" }
+        }
+        if selectedParent == nil && !keepsLegacyCategory { return "请选择分类。" }
+        return nil
+    }
     @State private var saveError: String?
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
@@ -28,6 +49,7 @@ struct SubscriptionEditor: View {
     @State private var firstAmount: Double? = nil
     @State private var startDate = Date.now
     @State private var selectedParent: CategoryModel?
+    @State private var legacyChild = ""
     @State private var selectedChild: CategoryModel?
     @State private var selectedAccount: AccountModel?
     @State private var note = ""
@@ -38,7 +60,7 @@ struct SubscriptionEditor: View {
     private var isEditing: Bool { editing != nil }
 
     private var expenseTopCategories: [CategoryModel] {
-        allCategories.filter { $0.parent == nil && $0.type == .expense }
+        allCategories.filter { $0.parent == nil && $0.type == .expense && (!$0.isArchived || $0 === selectedParent) }
             .sorted { $0.sortOrder < $1.sortOrder }
     }
 
@@ -48,15 +70,11 @@ struct SubscriptionEditor: View {
         return ((a / Double(cycle.months)) * 100).rounded() / 100
     }
 
-    private var canSave: Bool {
-        !name.trimmingCharacters(in: .whitespaces).isEmpty
-            && (amount ?? 0) > 0
-            && selectedParent != nil
-    }
+    private var canSave: Bool { validation == nil }
 
     var body: some View {
         NavigationStack {
-            Form {
+            PaperForm {
                 Section("订阅") {
                     TextField("名称，如 爱奇艺会员", text: $name)
                 }
@@ -77,7 +95,7 @@ struct SubscriptionEditor: View {
 
                     DatePicker("首次开通日期", selection: $startDate, displayedComponents: .date)
 
-                    Toggle("首期有优惠价", isOn: $hasPromo.animation())
+                    Toggle("首期有优惠价", isOn: $hasPromo)
                     if hasPromo {
                         HStack {
                             Text("首期金额")
@@ -103,7 +121,7 @@ struct SubscriptionEditor: View {
                         ForEach(expenseTopCategories) { cat in
                             Button {
                                 selectedParent = cat
-                                selectedChild = nil
+                                selectedChild = nil; legacyChild = ""
                             } label: {
                                 Text(cat.name)
                             }
@@ -115,7 +133,7 @@ struct SubscriptionEditor: View {
                             if let p = selectedParent {
                                 Text(p.name)
                             } else {
-                                Text("请选择").foregroundStyle(.secondary)
+                                Text(keepsLegacyCategory ? editing?.categoryName ?? "保留原分类" : "请选择").foregroundStyle(.secondary)
                             }
                             Image(systemName: "chevron.up.chevron.down").font(.caption2).foregroundStyle(.secondary)
                         }
@@ -124,15 +142,15 @@ struct SubscriptionEditor: View {
 
                     if let parent = selectedParent, !parent.sortedChildren.isEmpty {
                         Menu {
-                            Button("不分") { selectedChild = nil }
-                            ForEach(parent.sortedChildren) { child in
-                                Button(child.name) { selectedChild = child }
+                            Button("不分") { selectedChild = nil; legacyChild = "" }
+                            ForEach(parent.sortedChildren.filter { !$0.isArchived || $0 === selectedChild }) { child in
+                                Button(child.name) { selectedChild = child; legacyChild = "" }
                             }
                         } label: {
                             HStack {
                                 Text("子类")
                                 Spacer()
-                                Text(selectedChild?.name ?? "不分").foregroundStyle(selectedChild == nil ? .secondary : .primary)
+                                Text(selectedChild?.name ?? (legacyChild.isEmpty ? "不分" : legacyChild)).foregroundStyle(selectedChild == nil ? .secondary : .primary)
                                 Image(systemName: "chevron.up.chevron.down").font(.caption2).foregroundStyle(.secondary)
                             }
                         }
@@ -146,7 +164,7 @@ struct SubscriptionEditor: View {
                     }
                     Menu {
                         Button("不指定账户") { selectedAccount = nil }
-                        ForEach(accounts) { acc in
+                        ForEach(accounts.filter { !$0.isArchived || $0 === selectedAccount }) { acc in
                             Button { selectedAccount = acc } label: {
                                 Text(acc.name)
                             }
@@ -172,13 +190,19 @@ struct SubscriptionEditor: View {
                     }
 
                     if isEditing {
-                        Toggle("仍在订阅中", isOn: $isActive)
+                        Text(isActive ? "状态：进行中" : "状态：已停止").foregroundStyle(.secondary)
                     }
                 }
 
+                Section {
+                    InlineValidation(message: validation)
+                    Text(isEditing ? "保存订阅修改会更新它已生成的平摊账目。平摊用于分析成本，并非银行实时扣款。" : "按月平摊用于分析成本，账户余额按账目日期计算，并非银行实时扣款。")
+                        .font(.footnote).foregroundStyle(.secondary)
+                }
                 if isEditing {
                     Section {
-                        Button("删除订阅", role: .destructive) {
+                        Button(isActive ? "停止订阅，保留历史账目" : "恢复订阅") { showStopConfirm = true }
+                        Button("删除订阅及全部历史", role: .destructive) {
                             showDeleteConfirm = true
                         }
                         .frame(maxWidth: .infinity)
@@ -190,16 +214,20 @@ struct SubscriptionEditor: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("取消") { dismiss() }
+                    Button("取消") { if didSetup && fingerprint != baseline { discard = true } else { dismiss() } }
                 }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("保存") { save() }.disabled(!canSave)
                 }
             }
-            .confirmationDialog("删除后会一并删除该订阅自动生成的所有流水，确定吗？",
+            .confirmationDialog("删除订阅及 \(affectedCount) 笔账目？",
                                 isPresented: $showDeleteConfirm, titleVisibility: .visible) {
-                Button("删除订阅及其流水", role: .destructive) { deleteSubscription() }
-            }
+                Button("永久删除订阅及其账目", role: .destructive) { deleteSubscription() }
+            } message: { Text("此操作无法撤销。如果只是停止续费记账，请使用「停止订阅，保留历史账目」。") }
+            .protectDraft(didSetup && fingerprint != baseline, confirming: $discard) { dismiss() }
+            .confirmationDialog(isActive ? "停止生成新的订阅账目？" : "恢复订阅？", isPresented: $showStopConfirm, titleVisibility: .visible) {
+                Button(isActive ? "停止并保留历史" : "恢复订阅") { isActive.toggle(); save() }
+            } message: { Text(isActive ? "历史账目会保留，已生成的未来月份计划会移除。其他账目不受影响。" : "会按当前订阅设置补齐每月平摊账目。") }
             .onAppear(perform: setup)
             .alert("未能保存", isPresented: Binding(get: { saveError != nil }, set: { if !$0 { saveError = nil } })) {
                 Button("好") { saveError = nil }
@@ -219,23 +247,28 @@ struct SubscriptionEditor: View {
             hasPromo = s.hasFirstPromo
             firstAmount = s.firstAmount
             startDate = s.startDate
-            selectedParent = expenseTopCategories.first { $0.name == s.categoryName }
-            selectedChild = selectedParent?.sortedChildren.first { $0.name == s.subcategoryName }
+            selectedParent = allCategories.first { $0.parent == nil && $0.type == .expense && $0.matches(s.categoryName) }
+            selectedChild = selectedParent?.sortedChildren.first { $0.matches(s.subcategoryName) }
+            if selectedChild == nil { legacyChild = s.subcategoryName }
             selectedAccount = s.account
             ledgerKey = s.ledgerKey
             note = s.note
             isActive = s.isActive
         } else {
             selectedParent = expenseTopCategories.first { $0.name == "其他" } ?? expenseTopCategories.first
-            selectedAccount = accounts.first
+            selectedAccount = accounts.first { !$0.isArchived }
             ledgerKey = currentLedger
         }
+        baseline = fingerprint
     }
 
     // MARK: - 保存 / 删除
 
     private func save() {
-        guard let parent = selectedParent, let amt = amount, amt > 0 else { return }
+        guard canSave, let amt = amount else { return }
+        let parentName = selectedParent?.name ?? editing?.categoryName ?? ""
+        let parentIcon = selectedParent?.icon ?? editing?.categoryIcon ?? ""
+        let childName = selectedChild?.name ?? legacyChild
         let firstAmt = hasPromo ? (firstAmount ?? amt) : amt
         let trimmedName = name.trimmingCharacters(in: .whitespaces)
 
@@ -245,9 +278,9 @@ struct SubscriptionEditor: View {
             s.amount = amt
             s.firstAmount = firstAmt
             s.startDate = startDate
-            s.categoryName = parent.name
-            s.categoryIcon = parent.icon
-            s.subcategoryName = selectedChild?.name ?? ""
+            s.categoryName = parentName
+            s.categoryIcon = parentIcon
+            s.subcategoryName = childName
             s.account = selectedAccount
             s.ledgerKey = ledgerKey
             s.note = note
@@ -258,9 +291,9 @@ struct SubscriptionEditor: View {
                                         amount: amt,
                                         firstAmount: firstAmt,
                                         startDate: startDate,
-                                        categoryName: parent.name,
-                                        categoryIcon: parent.icon,
-                                        subcategoryName: selectedChild?.name ?? "",
+                                        categoryName: parentName,
+                                        categoryIcon: parentIcon,
+                                        subcategoryName: childName,
                                         note: note)
             sub.account = selectedAccount
             sub.ledgerKey = ledgerKey
@@ -268,8 +301,9 @@ struct SubscriptionEditor: View {
         }
 
         do {
+            try SubscriptionEngine.sync(modelContext, saving: false, rewriteAmounts: true)
             try modelContext.save()
-            SubscriptionEngine.sync(modelContext)
+            session.saved(isActive ? "订阅已保存" : "订阅已停止，历史账目已保留")
             dismiss()
         } catch {
             modelContext.rollback()
@@ -278,10 +312,13 @@ struct SubscriptionEditor: View {
     }
 
     private func deleteSubscription() {
-        if let s = editing {
-            SubscriptionEngine.deleteRecords(for: s, in: modelContext)
-            modelContext.delete(s)
-        }
-        dismiss()
+        guard let editing else { return }
+        do {
+            try SubscriptionEngine.deleteRecords(for: editing, in: modelContext)
+            modelContext.delete(editing)
+            try modelContext.save()
+            session.saved("订阅及其历史账目已删除")
+            dismiss()
+        } catch { modelContext.rollback(); saveError = "删除失败，原账目已保留。" }
     }
 }

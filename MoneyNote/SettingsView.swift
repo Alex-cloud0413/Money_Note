@@ -34,119 +34,92 @@ enum AppearanceMode: String, CaseIterable, Identifiable {
 struct SettingsView: View {
     @Query private var ledgers: [LedgerModel]
     @Environment(\.dismiss) private var dismiss
+    @EnvironmentObject private var session: AppSession
     @AppStorage("appearanceMode") private var appearanceRaw = AppearanceMode.system.rawValue
-    @Query(sort: \TxRecord.date, order: .reverse) private var transactions: [TxRecord]
-
+    @Query(sort: \TxRecord.date, order: .reverse) private var all: [TxRecord]
+    private var transactions: [TxRecord] { all.filter { !$0.isTrashed } }
     @State private var csvURL: URL?
+    @State private var exportDate: Date?
+    @State private var exportError: String?
+    @State private var exporting = false
     @State private var showCategories = false
     @State private var showSubscriptions = false
     @State private var showPinned = false
-
+    @State private var showTrash = false
     var body: some View {
         NavigationStack {
-            Form {
+            PaperForm {
                 Section("管理") {
                     Button { showCategories = true } label: { Label("分类管理", systemImage: "square.grid.2x2") }
                     Button { showSubscriptions = true } label: { Label("订阅管理", systemImage: "arrow.triangle.2.circlepath") }
                     Button { showPinned = true } label: { Label("关注分类", systemImage: "pin") }
+                    Button { showTrash = true } label: { Label("最近删除", systemImage: "trash") }
                 }
                 Section("外观") {
                     Picker("外观模式", selection: $appearanceRaw) {
-                        ForEach(AppearanceMode.allCases) { mode in
-                            Text(mode.label).tag(mode.rawValue)
-                        }
+                        ForEach(AppearanceMode.allCases) { Text($0.label).tag($0.rawValue) }
                     }
-                    .pickerStyle(.segmented)
                 }
-
+                Section("数据状态") {
+                    Label(session.cloudStatus, systemImage: "icloud")
+                    if let success = session.lastCloudSuccess {
+                        LabeledContent("最近同步完成", value: success.formatted(date: .abbreviated, time: .shortened))
+                    }
+                    if let saved = session.lastSaved {
+                        LabeledContent("本次最近保存", value: saved.formatted(date: .omitted, time: .standard))
+                    }
+                    Text("账目先保存在本机。iCloud 由系统自动同步，离线时可继续记账；这里仅报告系统实际返回的同步结果。")
+                        .font(.footnote).foregroundStyle(.secondary)
+                }
                 Section {
+                    Button(exporting ? "正在准备…" : "准备最新账单 CSV", action: export)
+                        .disabled(exporting || transactions.isEmpty)
                     if let url = csvURL {
-                        ShareLink(item: url) {
-                            Label("导出账单 CSV", systemImage: "square.and.arrow.up")
-                        }
-                    } else {
-                        Label("暂无可导出的账单", systemImage: "square.and.arrow.up")
-                            .foregroundStyle(.secondary)
+                        ShareLink(item: url) { Label("分享已准备的账单", systemImage: "square.and.arrow.up") }
+                        if let exportDate { Text("生成于 \(exportDate.formatted(date: .abbreviated, time: .shortened))").font(.caption).foregroundStyle(.secondary) }
                     }
-                } header: {
-                    Text("数据")
-                } footer: {
-                    Text("导出全部账单为 CSV 表格，可用 Excel / numbers 打开。")
+                    if transactions.isEmpty { Text("暂无账目可导出").foregroundStyle(.secondary) }
+                    InlineValidation(message: exportError)
+                } header: { Text("导出") } footer: {
+                    Text("包含所有账本的有效账目，不包含最近删除。修改账目后可重新准备最新文件。")
                 }
-
                 Section("关于") {
-                    infoRow("名称", "轻账记")
-                    infoRow("版本", appVersion)
-                    infoRow("账单数", "\(transactions.count) 笔")
+                    LabeledContent("名称", value: "轻账记")
+                    LabeledContent("版本", value: appVersion)
+                    LabeledContent("有效账目", value: "\(transactions.count) 笔")
                 }
-            }
-            .paperScreen()
-            .navigationTitle("设置")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("完成") { dismiss() }
-                }
-            }
-            .onAppear(perform: regenerateCSV)
-            .sheet(isPresented: $showCategories) { CategoryManagerView() }
-            .sheet(isPresented: $showSubscriptions) { SubscriptionsView() }
-            .sheet(isPresented: $showPinned) { PinnedCategoryPicker() }
+            }.readableWidth().paperScreen().navigationTitle("设置").navigationBarTitleDisplayMode(.inline)
+                .toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { dismiss() } } }
+                .sheet(isPresented: $showCategories) { CategoryManagerView() }
+                .sheet(isPresented: $showSubscriptions) { SubscriptionsView() }
+                .sheet(isPresented: $showPinned) { PinnedCategoryPicker() }
+                .sheet(isPresented: $showTrash) { RecentlyDeletedView() }
         }
     }
-
-    private func infoRow(_ title: String, _ value: String) -> some View {
-        HStack {
-            Text(title)
-            Spacer()
-            Text(value).foregroundStyle(.secondary)
-        }
-    }
-
     private var appVersion: String {
-        let v = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
-        let b = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "1"
-        return "\(v) (\(b))"
+        let info = Bundle.main.infoDictionary ?? [:]
+        return "\(info["CFBundleShortVersionString"] as? String ?? "1.2")（\(info["CFBundleVersion"] as? String ?? "5")）"
     }
-
-    // MARK: - CSV 导出
-
-    private func regenerateCSV() {
-        guard !transactions.isEmpty else { csvURL = nil; return }
-        let csv = makeCSV()
-        let url = FileManager.default.temporaryDirectory
-            .appendingPathComponent("MoneyNote-账单.csv")
-        try? csv.data(using: .utf8)?.write(to: url)
-        csvURL = url
-    }
-
-    private func makeCSV() -> String {
-        let df = DateFormatter()
-        df.dateFormat = "yyyy-MM-dd HH:mm"
-
-        var rows = ["日期,类型,金额,大类,子类,账户,账本,备注,分期"]
-        for t in transactions {
-            let fields = [
-                df.string(from: t.date),
-                t.type.rawValue,
-                String(format: "%.2f", t.amount),
-                t.categoryName,
-                t.subcategoryName,
-                t.account?.name ?? "",
-                LedgerChoice.choices(ledgers).first { $0.id == t.ledgerKey }?.name ?? t.ledgerKey,
-                t.note,
-                t.isInstallment ? "\(t.installmentIndex)/\(t.installmentCount)" : ""
-            ]
-            rows.append(fields.map(escape).joined(separator: ","))
+    private func export() {
+        exporting = true; exportError = nil; csvURL = nil
+        let date = Date.now
+        let df = DateFormatter(); df.dateFormat = "yyyy-MM-dd HH:mm"
+        let choices = LedgerChoice.choices(ledgers)
+        var rows = ["日期,类型,金额,大类,子类,账户,账本,备注,分期,状态"]
+        for record in transactions {
+            let fields = [df.string(from: record.date), record.type.rawValue, String(format: "%.2f", record.amount),
+                          record.categoryName, record.subcategoryName, record.account?.name ?? "",
+                          choices.first { $0.id == record.ledgerKey }?.name ?? record.ledgerKey,
+                          record.note, record.isInstallment ? "\(record.installmentIndex)/\(record.installmentCount)" : "",
+                          record.date > date ? "计划" : "已记入"]
+            rows.append(fields.map(CSVExport.escape).joined(separator: ","))
         }
-        // 开头加 BOM，Excel 打开中文不乱码
-        return "\u{FEFF}" + rows.joined(separator: "\n")
-    }
-
-    private func escape(_ s: String) -> String {
-        if s.contains(",") || s.contains("\"") || s.contains("\n") {
-            return "\"" + s.replacingOccurrences(of: "\"", with: "\"\"") + "\""
-        }
-        return s
+        let csv = "\u{FEFF}" + rows.joined(separator: "\n")
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("轻账记-账单-\(UUID().uuidString.prefix(8)).csv")
+        do {
+            try Data(csv.utf8).write(to: url, options: .atomic)
+            csvURL = url; exportDate = date
+        } catch { exportError = "导出失败，请检查设备剩余空间后重试。" }
+        exporting = false
     }
 }

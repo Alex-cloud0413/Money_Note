@@ -18,6 +18,9 @@ enum TransactionType: String, Codable, CaseIterable {
 /// 一笔账单流水。@Model 表示它会被 SwiftData 自动存到本地数据库。
 @Model
 final class TxRecord {
+    /// Soft deletion preserves all relationships and supports recovery across restarts.
+    var deletedAt: Date? = nil
+    var isTrashed: Bool { deletedAt != nil }
     /// Nil preserves existing and late-arriving CloudKit records in the life ledger.
     var bookID: String? = nil
     var ledgerKey: String {
