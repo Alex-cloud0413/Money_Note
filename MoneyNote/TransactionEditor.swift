@@ -135,8 +135,8 @@ struct TransactionEditor: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button(step == .amount ? "取消" : "上一步", action: backOrCancel)
-                        .accessibilityIdentifier("entryBack")
+                    Button("取消", action: cancel)
+                        .accessibilityIdentifier("entryCancel")
                 }
                 if editing != nil && step == .details {
                     ToolbarItem(placement: .bottomBar) {
@@ -163,6 +163,7 @@ struct TransactionEditor: View {
             .onChange(of: fingerprint) { _, _ in
                 if editing == nil && didSetup && dirty { draftRaw = fingerprint }
             }
+            .simultaneousGesture(previousStepSwipe)
         }
         .presentationDragIndicator(.visible)
     }
@@ -328,9 +329,10 @@ struct TransactionEditor: View {
             .readableWidth()
         }
         .safeAreaInset(edge: .bottom) {
-            primaryFooter("下一步") { if categoryValidation == nil { move(to: .details, forward: true) } }
-                .disabled(categoryValidation != nil)
-                .accessibilityIdentifier("entryNext")
+            stepFooter("下一步", canContinue: categoryValidation == nil,
+                       identifier: "entryNext") {
+                move(to: .details, forward: true)
+            }
         }
     }
 
@@ -381,9 +383,10 @@ struct TransactionEditor: View {
         }
         .scrollDismissesKeyboard(.interactively)
         .safeAreaInset(edge: .bottom) {
-            primaryFooter(editing == nil ? "完成记账" : "保存修改", action: save)
-                .disabled(finalValidation != nil)
-                .accessibilityIdentifier("saveTransaction")
+            stepFooter(editing == nil ? "完成记账" : "保存修改",
+                       canContinue: finalValidation == nil,
+                       identifier: "saveTransaction",
+                       action: save)
         }
     }
 
@@ -416,18 +419,74 @@ struct TransactionEditor: View {
         .paperCard()
     }
 
-    private func primaryFooter(_ title: String, action: @escaping () -> Void) -> some View {
+    private func stepFooter(_ title: String, canContinue: Bool,
+                            identifier: String, action: @escaping () -> Void) -> some View {
+        ViewThatFits(in: .horizontal) {
+            HStack(spacing: 12) {
+                primaryStepButton(title, canContinue: canContinue,
+                                  identifier: identifier, action: action)
+                previousStepButton
+            }
+            VStack(alignment: .trailing, spacing: 8) {
+                previousStepButton
+                primaryStepButton(title, canContinue: canContinue,
+                                  identifier: identifier, action: action)
+            }
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 10)
+        .background(PaperTheme.paper)
+    }
+
+    private func primaryStepButton(_ title: String, canContinue: Bool,
+                                   identifier: String, action: @escaping () -> Void) -> some View {
         Button(action: action) { Text(title).frame(maxWidth: .infinity) }
             .buttonStyle(PrimaryButtonStyle())
-            .padding(.horizontal, 20)
-            .padding(.vertical, 10)
-            .background(PaperTheme.paper)
+            .disabled(!canContinue)
+            .accessibilityIdentifier(identifier)
+    }
+
+    private var previousStepButton: some View {
+        Button(action: backOrCancel) {
+            Label("上一步", systemImage: "chevron.left")
+                .font(.subheadline.weight(.semibold))
+                .lineLimit(1)
+                .frame(minWidth: 88, minHeight: 48)
+                .foregroundStyle(PaperTheme.ink)
+                .background(PaperTheme.soft, in: RoundedRectangle(cornerRadius: 16))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 16)
+                        .stroke(PaperTheme.rule, lineWidth: 0.5)
+                }
+                .contentShape(RoundedRectangle(cornerRadius: 16))
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("entryBack")
+        .accessibilityHint("也可以从左向右滑动返回")
+    }
+
+    private var previousStepSwipe: some Gesture {
+        DragGesture(minimumDistance: 24, coordinateSpace: .local)
+            .onEnded { value in
+                guard step != .amount else { return }
+                let horizontal = value.translation.width
+                let vertical = abs(value.translation.height)
+                let projected = value.predictedEndTranslation.width
+                guard horizontal > 56,
+                      max(horizontal, projected) > 96,
+                      horizontal > vertical * 1.4 else { return }
+                backOrCancel()
+            }
+    }
+
+    private func cancel() {
+        if dirty { confirmDiscard = true } else { dismiss() }
     }
 
     private func backOrCancel() {
         switch step {
         case .amount:
-            if dirty { confirmDiscard = true } else { dismiss() }
+            cancel()
         case .category:
             move(to: .amount, forward: false)
         case .details:

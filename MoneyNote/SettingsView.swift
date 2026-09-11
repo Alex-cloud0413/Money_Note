@@ -98,7 +98,7 @@ struct SettingsView: View {
     }
     private var appVersion: String {
         let info = Bundle.main.infoDictionary ?? [:]
-        return "\(info["CFBundleShortVersionString"] as? String ?? "1.3")（\(info["CFBundleVersion"] as? String ?? "6")）"
+        return "\(info["CFBundleShortVersionString"] as? String ?? "1.3")（\(info["CFBundleVersion"] as? String ?? "7")）"
     }
     private func export() {
         exporting = true; exportError = nil; csvURL = nil
