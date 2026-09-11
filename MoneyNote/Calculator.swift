@@ -6,6 +6,7 @@ struct CalculatorKeypad: View {
     @Binding var text: String
     /// 为 true 时，按下第一个数字键会先把原内容清空（用于编辑已有金额）
     @Binding var clearOnNextInput: Bool
+    var canContinue = true
     var onDone: () -> Void
 
     /// 表达式里有没有运算符（有就显示「＝」，按一下算结果）
@@ -45,7 +46,10 @@ struct CalculatorKeypad: View {
                     } else { onDone() }
                 } label: {
                     Text(hasOperator ? "计算" : (typeSize.isAccessibilitySize ? "继续" : "下一步")).lineLimit(nil).fixedSize(horizontal: false, vertical: true).frame(maxWidth: .infinity)
-                }.buttonStyle(PrimaryButtonStyle())
+                }
+                .buttonStyle(PrimaryButtonStyle())
+                .disabled(!hasOperator && !canContinue)
+                .accessibilityIdentifier("entryNext")
             }
         }.padding(10).background(PaperTheme.paper)
             .onChange(of: text) { _, _ in calculationError = nil }
@@ -98,6 +102,7 @@ struct CalculatorKeypad: View {
 private extension View {
     func keyLabel() -> some View {
         self.font(.title2)
+            .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
             .frame(maxWidth: .infinity)
             .padding(.vertical, 8)
             .frame(minHeight: 44)

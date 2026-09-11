@@ -98,9 +98,6 @@ enum SubscriptionEngine {
                     if keep.categoryIcon != sub.categoryIcon { keep.categoryIcon = sub.categoryIcon; changed = true }
                     if keep.subcategoryName != sub.subcategoryName { keep.subcategoryName = sub.subcategoryName; changed = true }
                     if keep.note != sub.name { keep.note = sub.name; changed = true }
-                    if keep.account?.persistentModelID != sub.account?.persistentModelID {
-                        keep.account = sub.account; changed = true
-                    }
                     for dup in recs.dropFirst() { context.delete(dup); changed = true }
                 } else {
                     // 缺失：补一笔
@@ -110,7 +107,6 @@ enum SubscriptionEngine {
                                        subcategoryName: sub.subcategoryName,
                                        note: sub.name,
                                        date: dateInMonth(month, dayFrom: sub.startDate))
-                    rec.account = sub.account
                     rec.ledgerKey = sub.ledgerKey
                     rec.subscriptionUID = sub.uid
                     rec.subscriptionMonthKey = key

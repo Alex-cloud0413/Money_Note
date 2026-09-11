@@ -98,17 +98,17 @@ struct SettingsView: View {
     }
     private var appVersion: String {
         let info = Bundle.main.infoDictionary ?? [:]
-        return "\(info["CFBundleShortVersionString"] as? String ?? "1.2")（\(info["CFBundleVersion"] as? String ?? "5")）"
+        return "\(info["CFBundleShortVersionString"] as? String ?? "1.3")（\(info["CFBundleVersion"] as? String ?? "6")）"
     }
     private func export() {
         exporting = true; exportError = nil; csvURL = nil
         let date = Date.now
         let df = DateFormatter(); df.dateFormat = "yyyy-MM-dd HH:mm"
         let choices = LedgerChoice.choices(ledgers)
-        var rows = ["日期,类型,金额,大类,子类,账户,账本,备注,分期,状态"]
+        var rows = ["日期,类型,金额,大类,子类,账本,备注,分期,状态"]
         for record in transactions {
             let fields = [df.string(from: record.date), record.type.rawValue, String(format: "%.2f", record.amount),
-                          record.categoryName, record.subcategoryName, record.account?.name ?? "",
+                          record.categoryName, record.subcategoryName,
                           choices.first { $0.id == record.ledgerKey }?.name ?? record.ledgerKey,
                           record.note, record.isInstallment ? "\(record.installmentIndex)/\(record.installmentCount)" : "",
                           record.date > date ? "计划" : "已记入"]

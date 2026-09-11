@@ -11,7 +11,6 @@ struct StoreUpgradeRehearsal {
         let container = try ModelContainer(for: schema, configurations: [configuration])
         let context = container.mainContext
         try CategoryModel.seedDefaultsIfNeeded(context)
-        try AccountModel.seedDefaultsIfNeeded(context)
         try DataMaintenance.deduplicate(context)
         try CategoryOperations.reconcile(in: context)
         try context.save()

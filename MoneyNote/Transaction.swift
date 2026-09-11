@@ -45,7 +45,7 @@ final class TxRecord {
     /// 这条记录创建的时间（用于同一天内排序）
     var createdAt: Date = Date.now
 
-    /// 这笔账属于哪个账户（钱从哪进/出）。老数据为 nil。
+    /// Legacy migration field. New versions neither display nor write account data.
     var account: AccountModel?
 
     // —— 分期相关 ——

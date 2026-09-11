@@ -11,7 +11,7 @@ struct RecentlyDeletedView: View {
     var body: some View {
         NavigationStack {
             PaperList {
-                Section { Text("这里的账目不计入余额、统计或预算。恢复后会回到原日期、分类、账户和账本；App 不会自动清空这些记录。")
+                Section { Text("这里的账目不计入统计或预算。恢复后会回到原日期、分类和账本；App 不会自动清空这些记录。")
                     .font(.footnote).foregroundStyle(.secondary) }
                 if trash.isEmpty { ContentUnavailableView("没有已删除账目", systemImage: "trash") }
                 ForEach(trash) { record in

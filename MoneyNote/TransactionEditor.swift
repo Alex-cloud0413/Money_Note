@@ -2,9 +2,29 @@ import SwiftUI
 import SwiftData
 
 private struct EntryDraft: Codable {
-    var amount: String; var type: String; var parent: String; var child: String
-    var account: String?; var ledger: String; var note: String; var date: Date
-    var installment: Bool; var periods: Int
+    var amount: String
+    var type: String
+    var parent: String
+    var child: String
+    var ledger: String
+    var note: String
+    var date: Date
+    var installment: Bool
+    var periods: Int
+}
+
+private enum EntryStep: Int, CaseIterable {
+    case amount
+    case category
+    case details
+
+    var title: String {
+        switch self {
+        case .amount: return "金额"
+        case .category: return "分类"
+        case .details: return "详情"
+        }
+    }
 }
 
 struct TransactionEditor: View {
@@ -14,26 +34,26 @@ struct TransactionEditor: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @EnvironmentObject private var session: AppSession
     @Query(sort: \CategoryModel.sortOrder) private var categories: [CategoryModel]
-    @Query(sort: \AccountModel.sortOrder) private var accounts: [AccountModel]
-    @Query(sort: \TxRecord.createdAt, order: .reverse) private var records: [TxRecord]
     @Query private var ledgers: [LedgerModel]
     @AppStorage("selectedLedger") private var currentLedger = LedgerChoice.legacyKey
     @AppStorage("transactionDraft") private var draftRaw = ""
+
     var editing: TxRecord? = nil
     var initialDate: Date? = nil
+
+    @State private var step: EntryStep = .amount
+    @State private var direction = 1
     @State private var ledgerKey = LedgerChoice.legacyKey
     @State private var type: TransactionType = .expense
     @State private var amountText = ""
     @State private var selectedParent: CategoryModel?
-    @State private var legacyChild = ""
     @State private var selectedChild: CategoryModel?
-    @State private var selectedAccount: AccountModel?
+    @State private var legacyChild = ""
+    @State private var childChoiceMade = false
     @State private var note = ""
     @State private var date = Date.now
     @State private var isInstallment = false
     @State private var periods = 3
-    @State private var showCategories = false
-    @State private var showKeypad = false
     @State private var didSetup = false
     @State private var baseline = ""
     @State private var confirmDiscard = false
@@ -41,331 +61,468 @@ struct TransactionEditor: View {
     @State private var saveError: String?
     @State private var restoredDraft = false
     @State private var clearOnNextInput = false
+    @State private var managingCategories = false
     @FocusState private var noteFocused: Bool
 
-    private var keepsLegacyCategory: Bool { editing != nil && selectedParent == nil && editing?.type == type }
-    private var selectedName: String { selectedParent?.name ?? (keepsLegacyCategory ? editing?.categoryName ?? "未分类" : "选择分类") }
+    private var keepsLegacyCategory: Bool {
+        editing != nil && selectedParent == nil && editing?.type == type
+    }
+    private var activeChildren: [CategoryModel] {
+        selectedParent?.sortedChildren.filter { !$0.isArchived || $0 === selectedChild } ?? []
+    }
+    private var selectedCategoryName: String {
+        let parent = selectedParent?.name ?? (keepsLegacyCategory ? editing?.categoryName ?? "原分类" : "尚未选择")
+        let child = selectedChild?.name ?? legacyChild
+        return child.isEmpty ? parent : "\(parent) · \(child)"
+    }
+    private var topCategories: [CategoryModel] {
+        categories.filter { $0.parent == nil && $0.type == type && !$0.isArchived }
+    }
     private var draft: EntryDraft {
-        EntryDraft(amount: amountText, type: type.rawValue, parent: selectedParent?.name ?? "", child: selectedChild?.name ?? legacyChild,
-                   account: selectedAccount?.uid, ledger: ledgerKey, note: note, date: date,
+        EntryDraft(amount: amountText, type: type.rawValue,
+                   parent: selectedParent?.name ?? "", child: selectedChild?.name ?? legacyChild,
+                   ledger: ledgerKey, note: note, date: date,
                    installment: isInstallment, periods: periods)
     }
     private var fingerprint: String {
-        let encoder = JSONEncoder(); encoder.outputFormatting = .sortedKeys
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = .sortedKeys
         return (try? String(data: encoder.encode(draft), encoding: .utf8)) ?? ""
     }
     private var dirty: Bool { didSetup && fingerprint != baseline }
-    private var validation: String? {
-        if amountText.isEmpty { return "先输入金额，再选择分类。" }
-        guard let total = Calc.evaluate(amountText), total.isFinite else { return "算式无法计算，请检查除数是否为 0。" }
+    private var amountValue: Double? { Calc.evaluate(amountText) }
+    private var amountValidation: String? {
+        if amountText.isEmpty { return "请输入金额。" }
+        guard let total = amountValue, total.isFinite else { return "算式无法计算，请检查除数是否为 0。" }
         if amountText.last.map({ "+-×÷".contains($0) }) == true { return "请补全算式，或删除末尾的运算符。" }
         if (total * 100).rounded() < 1 { return "金额至少为 0.01 元。" }
         if total >= 1_000_000_000 { return "金额需小于 10 亿元。" }
-        if selectedParent == nil && !keepsLegacyCategory { return "请选择这笔账的分类。" }
-        if isInstallment && Int((total * 100).rounded()) < periods { return "总金额不足以分成 \(periods) 期，每期至少 0.01 元。" }
         return nil
     }
-    private var topCategories: [CategoryModel] { categories.filter { $0.parent == nil && $0.type == type && !$0.isArchived } }
-    private var recentCategories: [CategoryModel] {
-        var names: [String] = []
-        for record in records where !record.isTrashed && record.ledgerKey == ledgerKey && record.type == type {
-            if !names.contains(record.categoryName) { names.append(record.categoryName) }
-            if names.count == 4 { break }
-        }
-        let recent = names.compactMap { name in topCategories.first { $0.matches(name) } }
-        return Array((recent + topCategories.filter { cat in !recent.contains(where: { $0 === cat }) }).prefix(4))
+    private var categoryValidation: String? {
+        if selectedParent == nil && !keepsLegacyCategory { return "请先选择一级分类。" }
+        if !activeChildren.isEmpty && !childChoiceMade { return "请选择子分类，或选择「不分子类」。" }
+        return nil
     }
-    private var typeBinding: Binding<TransactionType> {
-        Binding(get: { type }, set: { type = $0; selectedParent = nil; selectedChild = nil; legacyChild = "" })
+    private var finalValidation: String? {
+        if let amountValidation { return amountValidation }
+        if let categoryValidation { return categoryValidation }
+        if isInstallment, let total = amountValue, Int((total * 100).rounded()) < periods {
+            return "总金额不足以分成 \(periods) 期，每期至少 0.01 元。"
+        }
+        return nil
+    }
+    private var stepTransition: AnyTransition {
+        guard !reduceMotion else { return .opacity }
+        return direction > 0
+            ? .asymmetric(insertion: .move(edge: .trailing), removal: .move(edge: .leading))
+            : .asymmetric(insertion: .move(edge: .leading), removal: .move(edge: .trailing))
     }
 
     var body: some View {
         NavigationStack {
-            GeometryReader { geometry in
-                let landscape = geometry.size.width > 650 && geometry.size.height < 500
-                let contentWidth = landscape && showKeypad ? geometry.size.width * 0.54 : geometry.size.width
-                ScrollViewReader { reader in
-                    HStack(alignment: .top, spacing: 0) {
-                        ScrollView {
-                            VStack(alignment: .leading, spacing: 16) {
-                                if showKeypad && typeSize.isAccessibilitySize {
-                                    accessibleAmountInput
-                                } else {
-                                Picker("收支类型", selection: typeBinding) {
-                                    ForEach(TransactionType.allCases, id: \.self) { Text($0.rawValue).tag($0) }
-                                }.pickerStyle(.segmented)
-                                amountCard
-                                categoryCard.id("category")
-                                options
-                                InlineValidation(message: validation)
-                                if restoredDraft { Text("已恢复上次未完成的记账").font(.footnote).foregroundStyle(.secondary) }
-                                }
-                            }.frame(width: max(0, min(contentWidth, 640) - 40), alignment: .leading).padding(20).frame(width: contentWidth, alignment: .center)
-                        }.frame(width: contentWidth).scrollDismissesKeyboard(.interactively)
-                            .safeAreaInset(edge: .bottom, spacing: 0) {
-                                if !landscape && showKeypad {
-                                    keypad(maxHeight: geometry.size.height * (typeSize.isAccessibilitySize ? 0.74 : 0.54)) {
-                                        closeKeypad(); reader.scrollTo("category", anchor: .top)
-                                    }.frame(width: contentWidth)
-                                } else if !showKeypad && !noteFocused {
-                                    Button(action: save) { Text(editing == nil ? "完成记账" : "保存修改").frame(maxWidth: .infinity) }
-                                        .buttonStyle(PrimaryButtonStyle()).disabled(validation != nil)
-                                        .accessibilityIdentifier("saveTransactionBottom")
-                                        .padding(.horizontal, 20).padding(.vertical, 10).background(PaperTheme.paper)
-                                }
-                            }
-                        if landscape && showKeypad {
-                            keypad(maxHeight: geometry.size.height) { closeKeypad(); reader.scrollTo("category", anchor: .top) }
-                                .frame(width: geometry.size.width * 0.46)
-                        }
-                    }
-                    .onChange(of: showKeypad) { _, visible in
-                        if !visible { reader.scrollTo("category", anchor: .top) }
-                    }
+            VStack(spacing: 0) {
+                stepIndicator
+                ZStack {
+                    stepContent
+                        .id(step)
+                        .transition(stepTransition)
                 }
+                .clipped()
             }
-            .paperScreen().navigationTitle(editing == nil ? "记一笔" : "编辑账目")
+            .paperScreen()
+            .navigationTitle(editing == nil ? "记一笔 · \(step.title)" : "编辑账目 · \(step.title)")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("取消") { if dirty { confirmDiscard = true } else { dismiss() } }
+                    Button(step == .amount ? "取消" : "上一步", action: backOrCancel)
+                        .accessibilityIdentifier("entryBack")
                 }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("完成", action: save).fontWeight(.semibold).disabled(validation != nil)
-                        .accessibilityIdentifier("saveTransaction")
-                }
-                if editing != nil {
-                    ToolbarItem(placement: .bottomBar) { Button("删除这笔账", role: .destructive) { confirmDelete = true } }
+                if editing != nil && step == .details {
+                    ToolbarItem(placement: .bottomBar) {
+                        Button("删除这笔账", role: .destructive) { confirmDelete = true }
+                    }
                 }
             }
-            .sheet(isPresented: $showCategories) {
-                CategoryChooser(type: type, selectedParent: Binding(get: { selectedParent }, set: { selectedParent = $0; legacyChild = "" }), selectedChild: Binding(get: { selectedChild }, set: { selectedChild = $0; legacyChild = "" }))
+            .sheet(isPresented: $managingCategories) { CategoryManagerView() }
+            .protectDraft(dirty, confirming: $confirmDiscard) {
+                if editing == nil { draftRaw = "" }
+                dismiss()
             }
-            .protectDraft(dirty, confirming: $confirmDiscard) { if editing == nil { draftRaw = "" }; dismiss() }
             .confirmationDialog("将这笔账移到最近删除？", isPresented: $confirmDelete, titleVisibility: .visible) {
-                Button("移到最近删除", role: .destructive) { if let editing, session.delete([editing], in: context) { dismiss() } }
-            } message: { Text("只处理当前这一笔，可在设置中恢复。其他分期不受影响。") }
+                Button("移到最近删除", role: .destructive) {
+                    if let editing, session.delete([editing], in: context) { dismiss() }
+                }
+            } message: {
+                Text("只处理当前这一笔，可在设置中恢复。其他分期不受影响。")
+            }
             .alert("未能保存", isPresented: Binding(get: { saveError != nil }, set: { if !$0 { saveError = nil } })) {
                 Button("好") { saveError = nil }
             } message: { Text(saveError ?? "") }
             .onAppear(perform: setup)
-            .onChange(of: fingerprint) { _, _ in if editing == nil && didSetup && dirty { draftRaw = fingerprint } }
-            .onChange(of: noteFocused) { _, focused in if focused { showKeypad = false } }
+            .onChange(of: fingerprint) { _, _ in
+                if editing == nil && didSetup && dirty { draftRaw = fingerprint }
+            }
+        }
+        .presentationDragIndicator(.visible)
+    }
+
+    private var stepIndicator: some View {
+        HStack(spacing: 8) {
+            ForEach(EntryStep.allCases, id: \.self) { item in
+                HStack(spacing: 6) {
+                    Text("\(item.rawValue + 1)")
+                        .font(.caption.weight(.semibold))
+                        .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
+                        .frame(width: 28, height: 28)
+                        .foregroundStyle(item.rawValue <= step.rawValue ? PaperTheme.onAccent : PaperTheme.ink)
+                        .background(item.rawValue <= step.rawValue ? PaperTheme.accent : PaperTheme.soft, in: Circle())
+                    if !typeSize.isAccessibilitySize { Text(item.title).font(.caption) }
+                }
+                if item != .details { Rectangle().fill(PaperTheme.rule).frame(height: 1) }
+            }
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 12)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("第 \(step.rawValue + 1) 步，共 3 步，\(step.title)")
+    }
+
+    @ViewBuilder private var stepContent: some View {
+        switch step {
+        case .amount: amountStep
+        case .category: categoryStep
+        case .details: detailsStep
         }
     }
-    private var accessibleAmountInput: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            HStack {
-                Text("金额").font(.caption)
-                Spacer()
-                Button("收起", action: closeKeypad).font(.caption).frame(minHeight: 44)
+
+    private var amountStep: some View {
+        GeometryReader { geometry in
+            if geometry.size.width > geometry.size.height {
+                HStack(spacing: 0) {
+                    amountOverview
+                        .frame(width: max(320, geometry.size.width * 0.43))
+                    Divider()
+                    amountKeypad
+                }
+            } else {
+                VStack(spacing: 0) {
+                    amountOverview
+                    amountKeypad
+                        .frame(maxHeight: typeSize.isAccessibilitySize ? .infinity : 340)
+                }
             }
-            ScrollView(.horizontal, showsIndicators: false) {
-                Text("¥" + (amountText.isEmpty ? "0" : amountText))
-                    .font(.system(.title2, design: .serif)).monospacedDigit().fixedSize()
-            }
-        }.padding(12).paperCard()
+        }
     }
-    private var amountCard: some View {
-        Button { noteFocused = false; showKeypad = true } label: {
-            VStack(alignment: .leading, spacing: 8) {
-                Text("金额").font(.subheadline).foregroundStyle(.secondary)
-                ScrollView(.horizontal, showsIndicators: false) {
-                    Text("¥" + (amountText.isEmpty ? "0" : amountText))
-                        .font(.system(.largeTitle, design: .serif)).monospacedDigit().fixedSize()
-                }
-                if amountText.contains(where: { "+-×÷".contains($0) }), let value = Calc.evaluate(amountText) {
-                    Text("计算结果 \(value.asCurrency)").font(.footnote).foregroundStyle(.secondary)
-                }
-            }.frame(maxWidth: .infinity, alignment: .leading).padding(18).paperCard()
-                .overlay { RoundedRectangle(cornerRadius: 20).stroke(showKeypad ? PaperTheme.accent : .clear, lineWidth: 1.5) }
-        }.buttonStyle(.plain).accessibilityLabel("金额")
-            .accessibilityValue(amountText.isEmpty ? "尚未输入" : amountText)
-            .accessibilityHint("点按继续编辑，已有数字会保留；可用清空重新输入。")
-    }
-    private var categoryCard: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Button { closeKeypad(); showCategories = true } label: {
-                AdaptiveRow {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("分类").font(.caption).foregroundStyle(.secondary)
-                        Text(selectedName + (selectedChild.map { " · " + $0.name } ?? "")).font(.headline)
-                    }
-                    AdaptiveSpacer()
-                    Label("全部", systemImage: "chevron.right").font(.subheadline)
-                }.frame(minHeight: 44).contentShape(Rectangle())
-            }.buttonStyle(.plain).accessibilityIdentifier("chooseCategory")
-            if keepsLegacyCategory {
-                Text("保留原分类。也可以从全部分类中重新选择。")
-                    .font(.footnote).foregroundStyle(.secondary)
-            }
-            let columns = Array(repeating: GridItem(.flexible(), spacing: 8), count: typeSize.isAccessibilitySize ? 2 : 4)
-            LazyVGrid(columns: columns, spacing: 8) {
-                ForEach(recentCategories) { cat in
-                    let selected = selectedParent === cat
-                    Button { selectedParent = cat; selectedChild = nil; legacyChild = ""; closeKeypad() } label: {
-                        VStack(spacing: 6) {
-                            CategoryGlyph(name: cat.name, icon: cat.icon, size: 36)
-                            Text(cat.name).font(.caption).fixedSize(horizontal: false, vertical: true)
-                        }.frame(maxWidth: .infinity).padding(.vertical, 8)
-                            .background(selected ? PaperTheme.soft : .clear, in: RoundedRectangle(cornerRadius: 14))
-                            .overlay { RoundedRectangle(cornerRadius: 14).stroke(selected ? PaperTheme.accent : .clear, lineWidth: 1) }
-                    }.buttonStyle(.plain).accessibilityLabel(cat.name)
-                        .accessibilityAddTraits(selected ? .isSelected : [])
-                }
-            }
-            if let parent = selectedParent, !parent.sortedChildren.filter({ !$0.isArchived }).isEmpty {
-                AdaptiveRow { Text("子分类").accessibilityHidden(true); AdaptiveSpacer(); Picker("子分类", selection: Binding(get: { selectedChild?.uid ?? (legacyChild.isEmpty ? "" : "__legacy") }, set: { value in
-                    selectedChild = parent.sortedChildren.first { $0.uid == value }; legacyChild = ""
+
+    private var amountOverview: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                Text("先确定这笔账的类型与金额。")
+                    .font(.subheadline).foregroundStyle(.secondary)
+                Picker("收支类型", selection: Binding(get: { type }, set: { value in
+                    type = value
+                    selectedParent = nil
+                    selectedChild = nil
+                    legacyChild = ""
+                    childChoiceMade = false
                 })) {
-                    Text("不分子类").tag("")
-                    if !legacyChild.isEmpty { Text(legacyChild + "（原子类）").tag("__legacy") }
-                    ForEach(parent.sortedChildren.filter { !$0.isArchived || $0 === selectedChild }) { Text($0.name).tag($0.uid) }
-                }.labelsHidden().pickerStyle(.menu).frame(minHeight: 44) }
-            }
-        }.padding(16).paperCard()
-    }
-    private var options: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            AdaptiveRow { Text("账户").accessibilityHidden(true); AdaptiveSpacer(); Picker("账户", selection: Binding(get: { selectedAccount?.uid ?? "" }, set: { value in
-                selectedAccount = accounts.first { $0.uid == value }
-            })) {
-                Text("不指定账户").tag("")
-                ForEach(accounts.filter { !$0.isArchived || $0 === selectedAccount }) {
-                    Text($0.name + ($0.isArchived ? "（已归档）" : "")).tag($0.uid)
+                    ForEach(TransactionType.allCases, id: \.self) { Text($0.rawValue).tag($0) }
                 }
-            }.labelsHidden().frame(minHeight: 44) }
-            Divider()
-            AdaptiveRow { Text("账本").accessibilityHidden(true); AdaptiveSpacer(); Picker("账本", selection: $ledgerKey) {
-                ForEach(LedgerChoice.choices(ledgers)) { Text($0.name).tag($0.id) }
-            }.labelsHidden().frame(minHeight: 44).accessibilityIdentifier("entryLedgerPicker") }
-            Divider()
-            DatePicker("日期", selection: $date, displayedComponents: [.date])
-                .datePickerStyle(.compact).frame(minHeight: 44)
-            if date > .now { Text("未来日期的账目会标记为计划，不计入当前账户余额。")
-                .font(.footnote).foregroundStyle(.secondary) }
-            Divider()
-            TextField("备注（可不填）", text: $note, axis: .vertical).focused($noteFocused).frame(minHeight: 44)
-            if editing == nil {
-                Divider()
-                Toggle("分期", isOn: $isInstallment).frame(minHeight: 44)
-                if isInstallment {
-                    Stepper("\(periods) 期", value: $periods, in: 2...60).frame(minHeight: 44)
-                    Text("从所选日期开始，每月一笔。总金额按分分配，合计保持不变。")
+                .pickerStyle(.segmented)
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("金额").font(.subheadline).foregroundStyle(.secondary)
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        Text("¥" + (amountText.isEmpty ? "0" : amountText))
+                            .font(.system(.largeTitle, design: .serif)).monospacedDigit().fixedSize()
+                    }
+                    if amountText.contains(where: { "+-×÷".contains($0) }), let value = amountValue {
+                        Text("计算结果 \(value.asCurrency)").font(.footnote).foregroundStyle(.secondary)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(18)
+                .paperCard()
+                InlineValidation(message: amountText.isEmpty ? nil : amountValidation)
+                if restoredDraft {
+                    Text("已恢复上次未完成的记账")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
             }
-        }.padding(16).paperCard()
+            .padding(20)
+            .readableWidth()
+        }
     }
-    private func keypad(maxHeight: CGFloat, next: @escaping () -> Void) -> some View {
-        VStack(spacing: 0) {
-            if !typeSize.isAccessibilitySize {
-                HStack {
-                    Text("输入金额").font(.subheadline)
-                    Spacer()
-                    Button("收起", action: closeKeypad).frame(minHeight: 44)
-                }.padding(.horizontal, 16)
+
+    private var amountKeypad: some View {
+        CalculatorKeypad(text: $amountText, clearOnNextInput: $clearOnNextInput,
+                         canContinue: amountValidation == nil) {
+            if amountValidation == nil { move(to: .category, forward: true) }
+        }
+        .overlay(alignment: .top) { Divider() }
+    }
+
+    private var categoryStep: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                stepSummary(title: type.rawValue, value: amountValue?.asCurrency ?? "¥0.00")
+                Text("先选一级分类，再确认下面的子分类。")
+                    .font(.subheadline).foregroundStyle(.secondary)
+                let columns = Array(repeating: GridItem(.flexible(), spacing: 10), count: typeSize.isAccessibilitySize ? 2 : 3)
+                LazyVGrid(columns: columns, spacing: 10) {
+                    ForEach(topCategories) { parent in
+                        let selected = selectedParent === parent
+                        Button {
+                            selectedParent = parent
+                            selectedChild = nil
+                            legacyChild = ""
+                            childChoiceMade = parent.sortedChildren.filter { !$0.isArchived }.isEmpty
+                        } label: {
+                            VStack(spacing: 8) {
+                                CategoryGlyph(name: parent.name, icon: parent.icon, size: 44)
+                                Text(parent.name).font(.subheadline.weight(.medium)).lineLimit(2)
+                            }
+                            .frame(maxWidth: .infinity, minHeight: 92)
+                            .padding(8)
+                            .background(selected ? PaperTheme.soft : PaperTheme.surface, in: RoundedRectangle(cornerRadius: 16))
+                            .overlay { RoundedRectangle(cornerRadius: 16).stroke(selected ? PaperTheme.accent : PaperTheme.rule, lineWidth: selected ? 1.5 : 0.5) }
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityAddTraits(selected ? .isSelected : [])
+                    }
+                }
+                if keepsLegacyCategory {
+                    Button {
+                        selectedParent = nil
+                        selectedChild = nil
+                        legacyChild = editing?.subcategoryName ?? ""
+                        childChoiceMade = true
+                    } label: {
+                        Label("保留原分类：\(selectedCategoryName)", systemImage: "clock.arrow.circlepath")
+                            .frame(maxWidth: .infinity, alignment: .leading).frame(minHeight: 44)
+                    }
+                    .buttonStyle(.plain)
+                }
+                if let parent = selectedParent {
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("\(parent.name)的子分类").font(.headline)
+                        if activeChildren.isEmpty {
+                            Label("这个分类没有子分类，将直接使用一级分类。", systemImage: "checkmark.circle")
+                                .font(.subheadline).foregroundStyle(.secondary)
+                        } else {
+                            childButton(title: "不分子类", child: nil)
+                            ForEach(activeChildren) { child in childButton(title: child.name, child: child) }
+                        }
+                    }
+                    .padding(16)
+                    .paperCard()
+                }
+                InlineValidation(message: categoryValidation)
+                Button { managingCategories = true } label: {
+                    Label("管理分类", systemImage: "slider.horizontal.3")
+                        .frame(maxWidth: .infinity).frame(minHeight: 44)
+                }
+                .buttonStyle(.plain)
             }
-            CalculatorKeypad(text: $amountText, clearOnNextInput: $clearOnNextInput, onDone: next)
-        }.frame(maxHeight: maxHeight).background(PaperTheme.paper)
-            .overlay(alignment: .top) { Divider() }
-            .transition(reduceMotion ? .opacity : .move(edge: .bottom))
+            .padding(20)
+            .readableWidth()
+        }
+        .safeAreaInset(edge: .bottom) {
+            primaryFooter("下一步") { if categoryValidation == nil { move(to: .details, forward: true) } }
+                .disabled(categoryValidation != nil)
+                .accessibilityIdentifier("entryNext")
+        }
     }
-    private func closeKeypad() { showKeypad = false; noteFocused = false }
+
+    private var detailsStep: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 18) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(selectedCategoryName).font(.headline)
+                    MoneyText(value: amountValue ?? 0, style: .title)
+                    Text(type.rawValue).font(.caption).foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(18)
+                .paperCard()
+
+                VStack(alignment: .leading, spacing: 12) {
+                    Picker("账本", selection: $ledgerKey) {
+                        ForEach(LedgerChoice.choices(ledgers)) { Text($0.name).tag($0.id) }
+                    }
+                    .frame(minHeight: 44)
+                    .accessibilityIdentifier("entryLedgerPicker")
+                    Divider()
+                    DatePicker("日期", selection: $date, displayedComponents: [.date])
+                        .datePickerStyle(.compact).frame(minHeight: 44)
+                    if date > .now {
+                        Text("未来日期会标记为计划，并计入所选月份的汇总与预算。")
+                            .font(.footnote).foregroundStyle(.secondary)
+                    }
+                    Divider()
+                    TextField("备注（可不填）", text: $note, axis: .vertical)
+                        .focused($noteFocused).frame(minHeight: 44)
+                    if editing == nil {
+                        Divider()
+                        Toggle("分期", isOn: $isInstallment).frame(minHeight: 44)
+                        if isInstallment {
+                            Stepper("\(periods) 期", value: $periods, in: 2...60).frame(minHeight: 44)
+                            Text("从所选日期开始，每月一笔。总金额按分分配，合计保持不变。")
+                                .font(.footnote).foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                .padding(16)
+                .paperCard()
+                InlineValidation(message: finalValidation)
+            }
+            .padding(20)
+            .readableWidth()
+        }
+        .scrollDismissesKeyboard(.interactively)
+        .safeAreaInset(edge: .bottom) {
+            primaryFooter(editing == nil ? "完成记账" : "保存修改", action: save)
+                .disabled(finalValidation != nil)
+                .accessibilityIdentifier("saveTransaction")
+        }
+    }
+
+    private func childButton(title: String, child: CategoryModel?) -> some View {
+        let selected = childChoiceMade && selectedChild === child && (child != nil || legacyChild.isEmpty)
+        return Button {
+            selectedChild = child
+            legacyChild = ""
+            childChoiceMade = true
+        } label: {
+            HStack {
+                Text(title)
+                Spacer()
+                if selected { Image(systemName: "checkmark") }
+            }
+            .frame(minHeight: 44)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+
+    private func stepSummary(title: String, value: String) -> some View {
+        HStack {
+            Text(title).font(.subheadline).foregroundStyle(.secondary)
+            Spacer()
+            Text(value).font(.system(.title3, design: .serif)).monospacedDigit()
+        }
+        .padding(16)
+        .paperCard()
+    }
+
+    private func primaryFooter(_ title: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) { Text(title).frame(maxWidth: .infinity) }
+            .buttonStyle(PrimaryButtonStyle())
+            .padding(.horizontal, 20)
+            .padding(.vertical, 10)
+            .background(PaperTheme.paper)
+    }
+
+    private func backOrCancel() {
+        switch step {
+        case .amount:
+            if dirty { confirmDiscard = true } else { dismiss() }
+        case .category:
+            move(to: .amount, forward: false)
+        case .details:
+            noteFocused = false
+            move(to: .category, forward: false)
+        }
+    }
+
+    private func move(to newStep: EntryStep, forward: Bool) {
+        direction = forward ? 1 : -1
+        withAnimation(reduceMotion ? nil : .smooth(duration: 0.28)) { step = newStep }
+    }
+
     private func setup() {
         guard !didSetup else { return }
-        if let r = editing {
-            type = r.type; amountText = Calc.format(r.amount); note = r.note; date = r.date
-            selectedParent = categories.first { $0.parent == nil && $0.type == r.type && $0.matches(r.categoryName) }
-            selectedChild = selectedParent?.sortedChildren.first { $0.matches(r.subcategoryName) }
-            if selectedChild == nil { legacyChild = r.subcategoryName }
-            selectedAccount = r.account; ledgerKey = r.ledgerKey
+        if let record = editing {
+            type = record.type
+            amountText = Calc.format(record.amount)
+            note = record.note
+            date = record.date
+            selectedParent = categories.first { $0.parent == nil && $0.type == record.type && $0.matches(record.categoryName) }
+            selectedChild = selectedParent?.sortedChildren.first { $0.matches(record.subcategoryName) }
+            if selectedChild == nil { legacyChild = record.subcategoryName }
+            childChoiceMade = true
+            ledgerKey = record.ledgerKey
         } else {
-            ledgerKey = currentLedger; selectedAccount = accounts.first { !$0.isArchived }
+            ledgerKey = currentLedger
             date = initialDate ?? .now
             if let data = draftRaw.data(using: .utf8), let saved = try? JSONDecoder().decode(EntryDraft.self, from: data) {
                 type = TransactionType(rawValue: saved.type) ?? .expense
-                amountText = saved.amount; note = saved.note; date = saved.date; ledgerKey = saved.ledger
+                amountText = saved.amount
+                note = saved.note
+                date = saved.date
+                ledgerKey = saved.ledger
                 selectedParent = categories.first { $0.parent == nil && $0.type == type && $0.matches(saved.parent) }
                 selectedChild = selectedParent?.sortedChildren.first { $0.matches(saved.child) }
                 if selectedChild == nil { legacyChild = saved.child }
-                selectedAccount = accounts.first { $0.uid == saved.account }
-                isInstallment = saved.installment; periods = saved.periods; restoredDraft = true
+                childChoiceMade = selectedParent != nil
+                isInstallment = saved.installment
+                periods = saved.periods
+                restoredDraft = true
             }
-            showKeypad = true
         }
         baseline = restoredDraft ? "" : fingerprint
         didSetup = true
     }
+
     private func save() {
-        guard validation == nil, let value = Calc.evaluate(amountText) else { return }
+        guard finalValidation == nil, let value = amountValue else { return }
         let total = (value * 100).rounded() / 100
         let parentName = selectedParent?.name ?? editing?.categoryName ?? ""
         let icon = selectedParent?.icon ?? editing?.categoryIcon ?? ""
         let child = selectedChild?.name ?? legacyChild
         var savedRecord: TxRecord?
-        if let r = editing {
-            r.amount = total; r.type = type; r.categoryName = parentName; r.categoryIcon = icon
-            r.subcategoryName = child; r.note = note; r.date = date; r.account = selectedAccount; r.ledgerKey = ledgerKey
-            savedRecord = r
+
+        if let record = editing {
+            record.amount = total
+            record.type = type
+            record.categoryName = parentName
+            record.categoryIcon = icon
+            record.subcategoryName = child
+            record.note = note
+            record.date = date
+            record.ledgerKey = ledgerKey
+            savedRecord = record
         } else {
             let plan = isInstallment ? InstallmentPlan.amounts(total: total, periods: periods) : [total]
             guard !plan.isEmpty else { return }
             let group: UUID? = isInstallment ? UUID() : nil
-            for (i, amount) in plan.enumerated() {
-                let r = TxRecord(amount: amount, type: type, categoryName: parentName, categoryIcon: icon,
-                                 subcategoryName: child, note: note,
-                                 date: Calendar.current.date(byAdding: .month, value: i, to: date) ?? date,
-                                 installmentGroupID: group, installmentIndex: i + 1, installmentCount: plan.count)
-                r.account = selectedAccount; r.ledgerKey = ledgerKey; context.insert(r)
-                if i == 0 { savedRecord = r }
+            for (index, amount) in plan.enumerated() {
+                let record = TxRecord(amount: amount, type: type,
+                                      categoryName: parentName, categoryIcon: icon,
+                                      subcategoryName: child, note: note,
+                                      date: Calendar.current.date(byAdding: .month, value: index, to: date) ?? date,
+                                      installmentGroupID: group, installmentIndex: index + 1,
+                                      installmentCount: plan.count)
+                record.ledgerKey = ledgerKey
+                context.insert(record)
+                if index == 0 { savedRecord = record }
             }
         }
+
         do {
             try context.save()
-            currentLedger = ledgerKey; session.month = date; session.selection = 0
+            currentLedger = ledgerKey
+            session.month = date
+            session.selection = 0
             session.selectedRecord = savedRecord?.persistentModelID
             if editing == nil { draftRaw = "" }
             session.saved(isInstallment ? "已保存 \(periods) 期 · 合计 \(total.asCurrency)" : "已保存 · \(total.asCurrency)")
             dismiss()
-        } catch { context.rollback(); saveError = "输入已保留，请稍后重试。"; session.failed("这笔账尚未保存") }
-    }
-}
-
-struct CategoryChooser: View {
-    @Environment(\.dismiss) private var dismiss
-    @Query(sort: \CategoryModel.sortOrder) private var categories: [CategoryModel]
-    let type: TransactionType
-    @Binding var selectedParent: CategoryModel?
-    @Binding var selectedChild: CategoryModel?
-    @State private var search = ""
-    @State private var managing = false
-    var body: some View {
-        NavigationStack {
-            PaperList {
-                ForEach(categories.filter { $0.parent == nil && $0.type == type && !$0.isArchived &&
-                    (search.isEmpty || $0.name.localizedStandardContains(search) || $0.sortedChildren.contains { $0.name.localizedStandardContains(search) }) }) { parent in
-                    Section {
-                        Button { selectedParent = parent; selectedChild = nil; dismiss() } label: {
-                            HStack { CategoryGlyph(name: parent.name, icon: parent.icon); Text(parent.name); Spacer()
-                                if selectedParent === parent && selectedChild == nil { Image(systemName: "checkmark") }
-                            }.frame(minHeight: 44)
-                        }.accessibilityAddTraits(selectedParent === parent && selectedChild == nil ? .isSelected : [])
-                        ForEach(parent.sortedChildren.filter { !$0.isArchived && (search.isEmpty || parent.name.localizedStandardContains(search) || $0.name.localizedStandardContains(search)) }) { child in
-                            Button { selectedParent = parent; selectedChild = child; dismiss() } label: {
-                                HStack { Text(child.name).padding(.leading, 54); Spacer()
-                                    if selectedChild === child { Image(systemName: "checkmark") }
-                                }.frame(minHeight: 44)
-                            }.accessibilityAddTraits(selectedChild === child ? .isSelected : [])
-                        }
-                    }.listRowBackground(PaperTheme.surface)
-                }
-            }.searchable(text: $search, prompt: "搜索分类").paperScreen().navigationTitle("选择分类")
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbar {
-                    ToolbarItem(placement: .cancellationAction) { Button("返回") { dismiss() } }
-                    ToolbarItem(placement: .topBarTrailing) { Button("管理") { managing = true } }
-                }.sheet(isPresented: $managing) { CategoryManagerView() }
+        } catch {
+            context.rollback()
+            saveError = "输入已保留，请稍后重试。"
+            session.failed("这笔账尚未保存")
         }
     }
 }

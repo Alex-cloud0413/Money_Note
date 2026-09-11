@@ -10,10 +10,10 @@ for file in "${model_files[@]}"; do
   current+=("$project_dir/MoneyNote/$file")
 done
 swiftc -parse-as-library -module-name MoneyNote -target "${check_arch}-apple-macosx14.0" "${legacy[@]}" "$project_dir/Tests/LegacyStore.swift" -o "$check_dir/legacy"
-swiftc -parse-as-library -module-name MoneyNote -target "${check_arch}-apple-macosx14.0" "${current[@]}" "$project_dir/MoneyNote/LedgerModel.swift" "$project_dir/MoneyNote/InstallmentPlan.swift" "$project_dir/MoneyNote/SubscriptionEngine.swift" "$project_dir/Tests/MigrationChecks.swift" -o "$check_dir/current"
+swiftc -parse-as-library -module-name MoneyNote -target "${check_arch}-apple-macosx14.0" "${current[@]}" "$project_dir/MoneyNote/LedgerModel.swift" "$project_dir/MoneyNote/InstallmentPlan.swift" "$project_dir/MoneyNote/SubscriptionEngine.swift" "$project_dir/MoneyNote/CategoryOperations.swift" "$project_dir/MoneyNote/DataMaintenance.swift" "$project_dir/Tests/MigrationChecks.swift" -o "$check_dir/current"
 "$check_dir/legacy" "$check_dir/default.store"
 "$check_dir/current" "$check_dir/default.store"
 "$check_dir/current" "$check_dir/default.store" --reopen
-swiftc -parse-as-library -module-name MoneyNote -target "${check_arch}-apple-macosx14.0" "${current[@]}" "$project_dir/MoneyNote/LedgerModel.swift" "$project_dir/MoneyNote/InstallmentPlan.swift" "$project_dir/MoneyNote/SubscriptionEngine.swift" "$project_dir/MoneyNote/CategoryOperations.swift" "$project_dir/MoneyNote/AmountCalculation.swift" "$project_dir/MoneyNote/CSVExport.swift" "$project_dir/Tests/AuditChecks.swift" -o "$check_dir/audit"
+swiftc -parse-as-library -module-name MoneyNote -target "${check_arch}-apple-macosx14.0" "${current[@]}" "$project_dir/MoneyNote/LedgerModel.swift" "$project_dir/MoneyNote/InstallmentPlan.swift" "$project_dir/MoneyNote/SubscriptionEngine.swift" "$project_dir/MoneyNote/CategoryOperations.swift" "$project_dir/MoneyNote/DataMaintenance.swift" "$project_dir/MoneyNote/AmountCalculation.swift" "$project_dir/MoneyNote/CSVExport.swift" "$project_dir/Tests/AuditChecks.swift" -o "$check_dir/audit"
 "$check_dir/audit" "$check_dir/audit.store"
 "$check_dir/audit" "$check_dir/audit.store" --reopen

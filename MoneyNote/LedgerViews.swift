@@ -33,7 +33,6 @@ struct LedgersView: View {
     @AppStorage("selectedLedger") private var selected = LedgerChoice.legacyKey
     @State private var editing: LedgerChoice?
     @State private var adding = false
-    @State private var accounts = false
 
     var body: some View {
         NavigationStack {
@@ -75,21 +74,13 @@ struct LedgersView: View {
                     Button { adding = true } label: {
                         Label("新建账本", systemImage: "plus").frame(maxWidth: .infinity).padding(18)
                     }.paperCard()
-                    Button { accounts = true } label: {
-                        HStack {
-                            Label("资金账户", systemImage: "creditcard")
-                            Spacer()
-                            Image(systemName: "chevron.right").font(.caption)
-                        }.padding(20).readableWidth()
-                    }.paperCard()
-                    Text("账本区分用途，账户记录收付来源。同一个账户可以用于不同账本。")
+                    Text("每个账本独立汇总明细、统计、预算与订阅，适合区分生活、事业或其他用途。")
                         .font(.footnote).foregroundStyle(.secondary).padding(.horizontal, 4)
                 }.padding(20).readableWidth()
             }
             .paperScreen().navigationTitle("账本").navigationBarTitleDisplayMode(.inline)
             .sheet(isPresented: $adding) { LedgerEditor() }
             .sheet(item: $editing) { LedgerEditor(editing: $0) }
-            .sheet(isPresented: $accounts) { AccountsView() }
         }
     }
 }

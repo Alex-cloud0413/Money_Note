@@ -1,6 +1,7 @@
 import SwiftUI
 import SwiftData
 import CoreData
+import Combine
 
 struct ContentView: View {
     @Environment(\.modelContext) private var context
@@ -58,7 +59,8 @@ struct ContentView: View {
         }
         .task { maintain() }
         .onChange(of: session.month) { _, month in sync(upTo: month) }
-        .onReceive(NotificationCenter.default.publisher(for: .NSPersistentStoreRemoteChange)) { _ in
+        .onReceive(NotificationCenter.default.publisher(for: .NSPersistentStoreRemoteChange)
+            .receive(on: RunLoop.main)) { _ in
             maintenanceTask?.cancel()
             maintenanceTask = Task { @MainActor in
                 try? await Task.sleep(for: .milliseconds(600))
@@ -71,7 +73,7 @@ struct ContentView: View {
         VStack(alignment: .leading, spacing: 12) {
             MonthSummaryCard(expense: expense, income: income)
             if !planned.isEmpty {
-                Text("包含 \(planned.count) 笔计划账目，尚未计入当前账户余额。")
+                Text("包含 \(planned.count) 笔计划账目，已计入所选月份的汇总与预算。")
                     .font(.footnote).foregroundStyle(.secondary)
             }
             if let budget = BudgetRules.effective(budgets, ledger: ledger, month: session.month).first(where: { $0.isTotal }) {
@@ -127,7 +129,7 @@ struct ContentView: View {
     }
     private func maintain() {
         do {
-            try CategoryModel.seedDefaultsIfNeeded(context); try AccountModel.seedDefaultsIfNeeded(context)
+            try CategoryModel.seedDefaultsIfNeeded(context)
             try DataMaintenance.deduplicate(context)
             try SubscriptionEngine.sync(context, upTo: session.month)
         }
@@ -202,7 +204,7 @@ struct TransactionRow: View {
         }.padding(.vertical, 6).accessibilityElement(children: .combine)
     }
     private var detail: String {
-        var parts = [transaction.account?.name ?? "", transaction.note].filter { !$0.isEmpty }
+        var parts = [transaction.note].filter { !$0.isEmpty }
         if transaction.isInstallment { parts.append("分期 \(transaction.installmentIndex)/\(transaction.installmentCount)") }
         if transaction.isSubscription { parts.append("订阅平摊") }
         if transaction.date > .now { parts.append("计划") }

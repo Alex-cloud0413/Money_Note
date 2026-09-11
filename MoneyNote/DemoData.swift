@@ -7,8 +7,6 @@ import SwiftData
 enum DemoData {
     static func populate(_ context: ModelContext) {
         try? CategoryModel.seedDefaultsIfNeeded(context)
-        try? AccountModel.seedDefaultsIfNeeded(context)
-        let account = (try? context.fetch(FetchDescriptor<AccountModel>()))?.first
         let samples: [(Double, TransactionType, String, String, String, String, Int)] = [
             (36, .expense, "餐饮", "早餐", "巷口的早餐", "life", 0),
             (128, .expense, "餐饮", "聚餐", "和朋友吃饭", "life", 1),
@@ -26,10 +24,11 @@ enum DemoData {
                               subcategoryName: subcategory, note: note,
                               date: Calendar.current.date(byAdding: .day, value: -days, to: .now) ?? .now)
             tx.ledgerKey = ledger
-            tx.account = account
             context.insert(tx)
         }
-        context.insert(BudgetModel(amount: 3000, ledgerKey: "life"))
+        let budget = BudgetModel(amount: 3000, ledgerKey: "life")
+        budget.monthKey = SubscriptionEngine.monthKey(.now)
+        context.insert(budget)
         try? context.save()
     }
 }

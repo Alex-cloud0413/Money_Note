@@ -33,7 +33,7 @@ struct BudgetView: View {
                             BudgetProgressCard(title: budget.categoryName, icon: "", spent: spent(budget.categoryName), limit: budget.amount)
                         }.buttonStyle(.plain)
                     }
-                    Text("预算默认只修改上方所选月份。旧版预算作为每月重复规则保留；本月设置会优先于重复规则。计划账目也计入所选月份的预算占用。")
+                    Text("每个月的预算独立设置，修改当前月份不会影响其他月份。计划账目也计入所选月份的预算占用。")
                         .font(.footnote).foregroundStyle(.secondary)
                 }.padding(20).readableWidth()
             }.paperScreen().navigationTitle("预算").navigationBarTitleDisplayMode(.inline)
@@ -78,14 +78,13 @@ struct BudgetEditView: View {
     var month: Date = .now
     @State private var amountText = ""
     @State private var category = ""
-    @State private var recurring = false
     @State private var baseline = ""
     @State private var didSetup = false
     @State private var discard = false
     @State private var deleting = false
     @State private var error: String?
     private var isTotal: Bool { budget?.isTotal ?? isTotalNew }
-    private var fingerprint: String { amountText + "|" + category + "|" + String(recurring) }
+    private var fingerprint: String { amountText + "|" + category }
     private var effective: [BudgetModel] { BudgetRules.effective(all, ledger: ledger, month: month) }
     private var available: [CategoryModel] {
         categories.filter { $0.parent == nil && $0.type == .expense && !$0.isArchived }
@@ -113,12 +112,11 @@ struct BudgetEditView: View {
                     InlineValidation(message: amountText.isEmpty ? nil : validation)
                 }
                 Section {
-                    Toggle("设为每月重复规则", isOn: $recurring)
-                    Text(recurring ? "会更新所有未单独设置预算的月份，包括历史月份的预算比较。" : "只应用于 \(month.formatted(.dateTime.year().month(.wide).locale(Locale(identifier: "zh_CN"))))，其他月份保持原值。")
+                    Text("只应用于 \(month.formatted(.dateTime.year().month(.wide).locale(Locale(identifier: "zh_CN"))))，其他月份保持原值。")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
                 if budget != nil {
-                    Section { Button(budget?.monthKey == nil ? "删除每月重复规则" : "删除本月设置", role: .destructive) { deleting = true } }
+                    Section { Button("删除本月设置", role: .destructive) { deleting = true } }
                 }
             }.paperScreen().navigationTitle(isTotal ? "总预算" : "分类预算").navigationBarTitleDisplayMode(.inline)
                 .toolbar {
@@ -131,7 +129,7 @@ struct BudgetEditView: View {
                     baseline = fingerprint; didSetup = true
                 }
                 .protectDraft(didSetup && fingerprint != baseline, confirming: $discard) { dismiss() }
-                .confirmationDialog(budget?.monthKey == nil ? "删除重复规则会影响所有沿用它的月份，确定吗？" : "删除本月设置？", isPresented: $deleting, titleVisibility: .visible) {
+                .confirmationDialog("删除本月设置？", isPresented: $deleting, titleVisibility: .visible) {
                     Button("删除预算设置", role: .destructive) {
                         guard let budget else { return }
                         let old = BudgetModel(categoryName: budget.categoryName, amount: budget.amount, sortOrder: budget.sortOrder, ledgerKey: budget.ledgerKey)
@@ -145,7 +143,7 @@ struct BudgetEditView: View {
                             }); dismiss()
                         } catch { context.rollback(); self.error = "删除失败，请重试。" }
                     }
-                } message: { Text("账目不会删除。本月设置删除后，如存在重复规则，会恢复使用重复规则。") }
+                } message: { Text("只删除当前月份的预算，账目和其他月份不会改变。") }
                 .alert("未能保存", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) {
                     Button("好") { error = nil }
                 } message: { Text(error ?? "") }
@@ -153,7 +151,7 @@ struct BudgetEditView: View {
     }
     private func save() {
         guard validation == nil, let value = Double(amountText) else { return }
-        let key: String? = recurring ? nil : SubscriptionEngine.monthKey(month)
+        let key = SubscriptionEngine.monthKey(month)
         let name = isTotal ? "" : category
         if let existing = all.first(where: { $0.ledgerKey == ledger && $0.categoryName == name && $0.monthKey == key }) {
             existing.amount = (value * 100).rounded() / 100
@@ -161,7 +159,7 @@ struct BudgetEditView: View {
             let new = BudgetModel(categoryName: name, amount: (value * 100).rounded() / 100, sortOrder: isTotal ? -1 : (all.map(\.sortOrder).max() ?? 0) + 1, ledgerKey: ledger)
             new.monthKey = key; context.insert(new)
         }
-        do { try context.save(); session.saved(recurring ? "每月预算规则已保存" : "所选月份预算已保存"); dismiss() }
+        do { try context.save(); session.saved("所选月份预算已保存"); dismiss() }
         catch { context.rollback(); self.error = "输入已保留，请稍后重试。" }
     }
 }

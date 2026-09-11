@@ -50,7 +50,8 @@ struct MoneyNoteApp: App {
                 }
             }
             .environmentObject(session)
-            .onReceive(NotificationCenter.default.publisher(for: NSPersistentCloudKitContainer.eventChangedNotification)) {
+            .onReceive(NotificationCenter.default.publisher(for: NSPersistentCloudKitContainer.eventChangedNotification)
+                .receive(on: RunLoop.main)) {
                 session.cloudEvent($0)
             }
         }

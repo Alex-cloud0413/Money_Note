@@ -1,7 +1,7 @@
 import Foundation
 import SwiftData
 
-/// Stable keys keep account relationships intact and avoid CloudKit uniqueness constraints.
+/// Stable keys preserve historical ledger membership and avoid CloudKit uniqueness constraints.
 @Model
 final class LedgerModel {
     var key: String = ""

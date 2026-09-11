@@ -17,7 +17,7 @@ struct SubscriptionEditor: View {
     private var fingerprint: String {
         [name, cycle.rawValue, String(amount ?? -1), String(hasPromo), String(firstAmount ?? -1),
          String(startDate.timeIntervalSince1970), selectedParent?.uid ?? "", selectedChild?.uid ?? "",
-         selectedAccount?.uid ?? "", ledgerKey, note, String(isActive)].joined(separator: "|")
+         ledgerKey, note, String(isActive)].joined(separator: "|")
     }
     private var keepsLegacyCategory: Bool { editing != nil && selectedParent == nil }
     private var affectedCount: Int { records.filter { $0.subscriptionUID == editing?.uid }.count }
@@ -34,7 +34,6 @@ struct SubscriptionEditor: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(\.dismiss) private var dismiss
     @Query(sort: \CategoryModel.sortOrder) private var allCategories: [CategoryModel]
-    @Query(sort: \AccountModel.sortOrder) private var accounts: [AccountModel]
 
     /// 传入要编辑的订阅；nil 表示新建
     var editing: SubscriptionModel? = nil
@@ -51,7 +50,6 @@ struct SubscriptionEditor: View {
     @State private var selectedParent: CategoryModel?
     @State private var legacyChild = ""
     @State private var selectedChild: CategoryModel?
-    @State private var selectedAccount: AccountModel?
     @State private var note = ""
     @State private var isActive = true
     @State private var didSetup = false
@@ -162,27 +160,6 @@ struct SubscriptionEditor: View {
                     Picker("账本", selection: $ledgerKey) {
                         ForEach(LedgerChoice.choices(ledgers)) { Text($0.name).tag($0.id) }
                     }
-                    Menu {
-                        Button("不指定账户") { selectedAccount = nil }
-                        ForEach(accounts.filter { !$0.isArchived || $0 === selectedAccount }) { acc in
-                            Button { selectedAccount = acc } label: {
-                                Text(acc.name)
-                            }
-                        }
-                    } label: {
-                        HStack {
-                            Text("扣款账户")
-                            Spacer()
-                            if let acc = selectedAccount {
-                                Text(acc.name)
-                            } else {
-                                Text("不指定").foregroundStyle(.secondary)
-                            }
-                            Image(systemName: "chevron.up.chevron.down").font(.caption2).foregroundStyle(.secondary)
-                        }
-                    }
-                    .foregroundStyle(.primary)
-
                     HStack {
                         Text("备注")
                         TextField("可不填", text: $note)
@@ -196,7 +173,7 @@ struct SubscriptionEditor: View {
 
                 Section {
                     InlineValidation(message: validation)
-                    Text(isEditing ? "保存订阅修改会更新它已生成的平摊账目。平摊用于分析成本，并非银行实时扣款。" : "按月平摊用于分析成本，账户余额按账目日期计算，并非银行实时扣款。")
+                    Text(isEditing ? "保存订阅修改会更新它已生成的平摊账目。" : "订阅金额会按月平摊，计入所选账本的统计与预算。")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
                 if isEditing {
@@ -250,13 +227,11 @@ struct SubscriptionEditor: View {
             selectedParent = allCategories.first { $0.parent == nil && $0.type == .expense && $0.matches(s.categoryName) }
             selectedChild = selectedParent?.sortedChildren.first { $0.matches(s.subcategoryName) }
             if selectedChild == nil { legacyChild = s.subcategoryName }
-            selectedAccount = s.account
             ledgerKey = s.ledgerKey
             note = s.note
             isActive = s.isActive
         } else {
             selectedParent = expenseTopCategories.first { $0.name == "其他" } ?? expenseTopCategories.first
-            selectedAccount = accounts.first { !$0.isArchived }
             ledgerKey = currentLedger
         }
         baseline = fingerprint
@@ -281,7 +256,6 @@ struct SubscriptionEditor: View {
             s.categoryName = parentName
             s.categoryIcon = parentIcon
             s.subcategoryName = childName
-            s.account = selectedAccount
             s.ledgerKey = ledgerKey
             s.note = note
             s.isActive = isActive
@@ -295,7 +269,6 @@ struct SubscriptionEditor: View {
                                         categoryIcon: parentIcon,
                                         subcategoryName: childName,
                                         note: note)
-            sub.account = selectedAccount
             sub.ledgerKey = ledgerKey
             modelContext.insert(sub)
         }

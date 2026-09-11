@@ -53,7 +53,7 @@ final class SubscriptionModel {
     /// 子类（可为空）
     var subcategoryName: String = ""
 
-    /// 扣款账户（可为空）
+    /// Legacy migration field. New versions neither display nor write account data.
     var account: AccountModel?
 
     /// 是否仍在订阅中（取消后置 false，停止继续生成）

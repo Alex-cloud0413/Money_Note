@@ -2,8 +2,8 @@
 //  DataMaintenance.swift
 //  MoneyNote
 //
-//  多端 iCloud 同步后的去重合并。
-//  因为每台设备首启都各建一套默认分类/账户，同步后会出现重复。
+//  多端 iCloud 同步后的分类去重与旧预算迁移。
+//  因为每台设备首启都各建一套默认分类，同步后会出现重复。
 //  这里按「类型+名称」分组，给每条补一个稳定 uid，重复的留 uid 最小的那条、
 //  其余合并删除。各设备都按同一规则收敛到同一份，不会来回打架。
 //
@@ -16,7 +16,7 @@ enum DataMaintenance {
     /// 入口：补 uid + 去重。空跑（无重复）时几乎零开销。
     static func deduplicate(_ context: ModelContext) throws {
         try backfillUIDs(context)
-        try dedupeAccounts(context)
+        try migrateLegacyBudgets(context, to: .now)
         try dedupeCategories(context)
         try CategoryOperations.reconcile(in: context)
         try context.save()
@@ -26,25 +26,18 @@ enum DataMaintenance {
     private static func backfillUIDs(_ context: ModelContext) throws {
         let cats = try context.fetch(FetchDescriptor<CategoryModel>())
         for c in cats where c.uid.isEmpty { c.uid = UUID().uuidString }
-        let accs = try context.fetch(FetchDescriptor<AccountModel>())
-        for a in accs where a.uid.isEmpty { a.uid = UUID().uuidString }
         try context.save()
     }
 
-    // MARK: - 账户去重（账户被流水以关系引用，需把流水改挂到留存账户上）
-
-    private static func dedupeAccounts(_ context: ModelContext) throws {
-        let accounts = try context.fetch(FetchDescriptor<AccountModel>())
-        let groups = Dictionary(grouping: accounts) { "\($0.typeRaw)|\($0.name)|\($0.initialBalance)" }
-        for (_, group) in groups where group.count > 1 {
-            let sorted = group.sorted { $0.uid < $1.uid }
-            let survivor = sorted[0]
-            for dup in sorted.dropFirst() {
-                if dup.isArchived { survivor.archived = true }
-                for sub in (dup.subscriptions ?? []) { sub.account = survivor }
-                for rec in (dup.records ?? []) { rec.account = survivor }
-                context.delete(dup)
-            }
+    // Legacy repeating budgets become one-time values for the month in which this version upgrades.
+    // If that month already has an explicit value, retain the old rows as untouched migration data.
+    static func migrateLegacyBudgets(_ context: ModelContext, to month: Date) throws {
+        let key = SubscriptionEngine.monthKey(month)
+        let budgets = try context.fetch(FetchDescriptor<BudgetModel>())
+        let groups = Dictionary(grouping: budgets) { "\($0.ledgerKey)|\($0.categoryName)" }
+        for group in groups.values {
+            guard !group.contains(where: { $0.monthKey == key }) else { continue }
+            for legacy in group where legacy.monthKey == nil { legacy.monthKey = key }
         }
     }
 
