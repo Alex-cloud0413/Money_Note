@@ -62,6 +62,7 @@ struct TransactionEditor: View {
     @State private var restoredDraft = false
     @State private var clearOnNextInput = false
     @State private var managingCategories = false
+    @State private var choosingChild = false
     @FocusState private var noteFocused: Bool
 
     private var keepsLegacyCategory: Bool {
@@ -145,6 +146,16 @@ struct TransactionEditor: View {
                 }
             }
             .sheet(isPresented: $managingCategories) { CategoryManagerView() }
+            .confirmationDialog(childDialogTitle, isPresented: $choosingChild,
+                                titleVisibility: .visible) {
+                Button("不分子类") { completeCategory(with: nil) }
+                ForEach(activeChildren) { child in
+                    Button(child.name) { completeCategory(with: child) }
+                }
+                Button("返回分类", role: .cancel) {}
+            } message: {
+                Text("选择后会自动进入详情。")
+            }
             .protectDraft(dirty, confirming: $confirmDiscard) {
                 if editing == nil { draftRaw = "" }
                 dismiss()
@@ -267,17 +278,14 @@ struct TransactionEditor: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 stepSummary(title: type.rawValue, value: amountValue?.asCurrency ?? "¥0.00")
-                Text("先选一级分类，再确认下面的子分类。")
+                Text("选择一级分类后，会自动显示它的子分类。")
                     .font(.subheadline).foregroundStyle(.secondary)
                 let columns = Array(repeating: GridItem(.flexible(), spacing: 10), count: typeSize.isAccessibilitySize ? 2 : 3)
                 LazyVGrid(columns: columns, spacing: 10) {
                     ForEach(topCategories) { parent in
                         let selected = selectedParent === parent
                         Button {
-                            selectedParent = parent
-                            selectedChild = nil
-                            legacyChild = ""
-                            childChoiceMade = parent.sortedChildren.filter { !$0.isArchived }.isEmpty
+                            choose(parent)
                         } label: {
                             VStack(spacing: 8) {
                                 CategoryGlyph(name: parent.name, icon: parent.icon, size: 44)
@@ -298,25 +306,12 @@ struct TransactionEditor: View {
                         selectedChild = nil
                         legacyChild = editing?.subcategoryName ?? ""
                         childChoiceMade = true
+                        move(to: .details, forward: true)
                     } label: {
                         Label("保留原分类：\(selectedCategoryName)", systemImage: "clock.arrow.circlepath")
                             .frame(maxWidth: .infinity, alignment: .leading).frame(minHeight: 44)
                     }
                     .buttonStyle(.plain)
-                }
-                if let parent = selectedParent {
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text("\(parent.name)的子分类").font(.headline)
-                        if activeChildren.isEmpty {
-                            Label("这个分类没有子分类，将直接使用一级分类。", systemImage: "checkmark.circle")
-                                .font(.subheadline).foregroundStyle(.secondary)
-                        } else {
-                            childButton(title: "不分子类", child: nil)
-                            ForEach(activeChildren) { child in childButton(title: child.name, child: child) }
-                        }
-                    }
-                    .padding(16)
-                    .paperCard()
                 }
                 InlineValidation(message: categoryValidation)
                 Button { managingCategories = true } label: {
@@ -390,23 +385,34 @@ struct TransactionEditor: View {
         }
     }
 
-    private func childButton(title: String, child: CategoryModel?) -> some View {
-        let selected = childChoiceMade && selectedChild === child && (child != nil || legacyChild.isEmpty)
-        return Button {
-            selectedChild = child
-            legacyChild = ""
+    private var childDialogTitle: String {
+        guard let selectedParent else { return "选择子分类" }
+        return "\(selectedParent.name)的子分类"
+    }
+
+    private func choose(_ parent: CategoryModel) {
+        selectedParent = parent
+        selectedChild = nil
+        legacyChild = ""
+        childChoiceMade = false
+        let children = parent.sortedChildren.filter { !$0.isArchived }
+        if children.isEmpty {
             childChoiceMade = true
-        } label: {
-            HStack {
-                Text(title)
-                Spacer()
-                if selected { Image(systemName: "checkmark") }
-            }
-            .frame(minHeight: 44)
-            .contentShape(Rectangle())
+            move(to: .details, forward: true)
+        } else {
+            choosingChild = true
         }
-        .buttonStyle(.plain)
-        .accessibilityAddTraits(selected ? .isSelected : [])
+    }
+
+    private func completeCategory(with child: CategoryModel?) {
+        selectedChild = child
+        legacyChild = ""
+        childChoiceMade = true
+        choosingChild = false
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) {
+            guard step == .category else { return }
+            move(to: .details, forward: true)
+        }
     }
 
     private func stepSummary(title: String, value: String) -> some View {
