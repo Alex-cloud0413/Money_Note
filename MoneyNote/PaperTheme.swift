@@ -10,13 +10,13 @@ enum PaperTheme {
                            blue: CGFloat(hex & 255) / 255, alpha: 1)
         })
     }
-    static let paper = adaptive(0xF3F0E8, 0x202020)
-    static let surface = adaptive(0xFCFAF4, 0x2B2B2B)
+    static let paper = adaptive(0xFFFFFF, 0x202020)
+    static let surface = adaptive(0xFFFFFF, 0x292929)
     static let ink = adaptive(0x000000, 0xEEEEEE)
     static let accent = adaptive(0x000000, 0xFFFFFF)
     static let onAccent = adaptive(0xFCFAF4, 0x000000)
-    static let rule = adaptive(0xDDDBD7, 0x484848)
-    static let soft = adaptive(0xEAE8E3, 0x363636)
+    static let rule = adaptive(0xD8D8D8, 0x4A4A4A)
+    static let soft = adaptive(0xF1F1F1, 0x353535)
     static let warning = adaptive(0x555555, 0xBBBBBB)
     static let chart: [Color] = [0x000000, 0x414141, 0x777777, 0x999999, 0xB8B8B8, 0xD0D0D0].map {
         adaptive(UInt32($0), UInt32(0xFFFFFF - $0))
@@ -65,12 +65,14 @@ struct PaperBackground: View {
         PaperTheme.paper.overlay {
             if contrast != .increased {
                 GeometryReader { geo in
-                    Image("PaperTexture")
+                    Image("PaperTextureCrumpled")
                         .resizable().scaledToFill()
                         .frame(width: geo.size.width, height: geo.size.height)
                         .clipped()
+                        .saturation(colorScheme == .dark ? 1 : 0)
+                        .contrast(colorScheme == .dark ? 1 : 1.12)
                         .blendMode(colorScheme == .dark ? .softLight : .multiply)
-                        .opacity(colorScheme == .dark ? 0.14 : 0.32)
+                        .opacity(colorScheme == .dark ? 0.10 : 0.46)
                 }
             }
         }
@@ -90,10 +92,9 @@ struct CategoryGlyph: View {
                 Image(systemName: symbol)
             } else { Text(icon) }
         }
-        .font(.system(size: size * 0.43, weight: .regular))
+        .font(.system(size: size * 0.43, weight: .light))
         .foregroundStyle(PaperTheme.ink)
         .frame(width: size, height: size)
-        .background(PaperTheme.soft, in: RoundedRectangle(cornerRadius: size * 0.3))
         .accessibilityHidden(true)
     }
 }
@@ -106,23 +107,19 @@ extension View {
             .foregroundStyle(PaperTheme.ink)
             .tint(PaperTheme.accent)
     }
-    func paperCard(radius: CGFloat = 20) -> some View {
-        self.background(PaperTheme.surface.opacity(0.88), in: RoundedRectangle(cornerRadius: radius))
-            .overlay { RoundedRectangle(cornerRadius: radius).stroke(PaperTheme.rule.opacity(0.7), lineWidth: 0.6) }
-    }
 }
 
 struct MonthPicker: View {
     @Binding var month: Date
     var body: some View {
-        HStack {
-            Button { change(-1) } label: { Image(systemName: "chevron.left").frame(width: 44, height: 44) }
+        HStack(spacing: 4) {
+            Button { change(-1) } label: { Image(systemName: "chevron.left").font(.subheadline).frame(width: 44, height: 44) }
                 .accessibilityLabel("上个月")
             Spacer()
             Text(month.formatted(.dateTime.year().month(.wide).locale(Locale(identifier: "zh_CN"))))
-                .font(.subheadline.weight(.medium)).monospacedDigit()
+                .font(.headline).monospacedDigit()
             Spacer()
-            Button { change(1) } label: { Image(systemName: "chevron.right").frame(width: 44, height: 44) }
+            Button { change(1) } label: { Image(systemName: "chevron.right").font(.subheadline).frame(width: 44, height: 44) }
                 .accessibilityLabel("下个月")
         }
     }

@@ -19,7 +19,12 @@ struct ContentView: View {
     private var records: [TxRecord] { LedgerAnalytics.records(transactions, ledger: ledger, month: session.month) }
     private var expense: Double { records.filter { $0.type == .expense }.reduce(0) { $0 + $1.amount } }
     private var income: Double { records.filter { $0.type == .income }.reduce(0) { $0 + $1.amount } }
-    private var planned: [TxRecord] { records.filter { $0.date > .now } }
+    private var todayExpenses: [TxRecord] {
+        transactions.filter {
+            !$0.isTrashed && $0.ledgerKey == ledger && $0.type == .expense &&
+            Calendar.current.isDateInToday($0.date)
+        }
+    }
     private var byDay: [Date: [TxRecord]] { Dictionary(grouping: records) { Calendar.current.startOfDay(for: $0.date) } }
     private var initialDate: Date {
         if Calendar.current.isDate(session.month, equalTo: .now, toGranularity: .month) { return .now }
@@ -35,6 +40,7 @@ struct ContentView: View {
                 VStack(spacing: 0) {
                     AdaptiveRow { LedgerPicker(); AdaptiveSpacer(); MonthPicker(month: $session.month).frame(maxWidth: 350) }
                         .padding(.horizontal, 20)
+                        .padding(.bottom, 8)
                     if wide {
                         HStack(alignment: .top, spacing: 4) {
                             ScrollView { summary.padding(20) }.frame(width: min(380, geometry.size.width * 0.34))
@@ -72,36 +78,47 @@ struct ContentView: View {
     private var summary: some View {
         VStack(alignment: .leading, spacing: 12) {
             MonthSummaryCard(expense: expense, income: income)
-            if !planned.isEmpty {
-                Text("包含 \(planned.count) 笔计划账目，已计入所选月份的汇总与预算。")
-                    .font(.footnote).foregroundStyle(.secondary)
-            }
             if let budget = BudgetRules.effective(budgets, ledger: ledger, month: session.month).first(where: { $0.isTotal }) {
-                BudgetProgressCard(title: "总预算", icon: "circle.dashed", spent: expense, limit: budget.amount)
+                BudgetProgressCard(title: "总预算", icon: "circle.dashed", spent: expense, limit: budget.amount, showsTopRule: false)
             }
             PinnedCategoryCards(records: records)
+            TodayExpenseSummary(records: todayExpenses, onSelect: edit)
         }
     }
     private func recordList(includeSummary: Bool) -> some View {
         ScrollViewReader { reader in
             PaperList {
                 if includeSummary {
-                    Section { summary.listRowInsets(EdgeInsets()).listRowBackground(Color.clear) }
+                    Section {
+                        summary
+                            .listRowInsets(EdgeInsets(top: 0, leading: 20, bottom: 0, trailing: 20))
+                            .listRowBackground(Color.clear)
+                            .listRowSeparator(.hidden)
+                    }
                 }
                 if records.isEmpty {
                     Section {
-                        ContentUnavailableView {
-                            Label("所选月份还没有账目", systemImage: "yensign.circle")
-                        } description: { Text("新账会默认记在上方所选月份。") } actions: {
-                            Button("记一笔") { showingAdd = true }.buttonStyle(PrimaryButtonStyle())
-                        }.listRowBackground(Color.clear)
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text("这个月还是空白。")
+                                .font(.title2.weight(.semibold))
+                            Text("第一笔会记入上方所选月份。")
+                                .font(.subheadline).foregroundStyle(.secondary)
+                            Button("记一笔") { showingAdd = true }
+                                .buttonStyle(PrimaryButtonStyle())
+                                .padding(.top, 10)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.vertical, 28)
+                        .listRowBackground(Color.clear)
+                        .listRowSeparator(.hidden)
                     }
                 }
                 ForEach(byDay.keys.sorted(by: >), id: \.self) { day in
                     Section {
                         ForEach(byDay[day] ?? []) { record in
                             Button { edit(record) } label: { TransactionRow(transaction: record) }
-                                .buttonStyle(.plain).listRowBackground(PaperTheme.surface)
+                                .buttonStyle(.plain).listRowBackground(Color.clear)
+                                .listRowSeparator(.hidden)
                                 .id(record.persistentModelID)
                                 .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                                     if record.isSubscription {
@@ -115,7 +132,7 @@ struct ContentView: View {
                         DayHeader(day: day, total: (byDay[day] ?? []).reduce(0) { $0 + $1.signedAmount })
                     }
                 }
-            }.listStyle(.insetGrouped).scrollContentBackground(.hidden)
+            }.listStyle(.plain).scrollContentBackground(.hidden)
                 .contentMargins(.top, 8, for: .scrollContent)
                 .onChange(of: session.selectedRecord) { _, record in
                     if let record { reader.scrollTo(record, anchor: .center) }
@@ -145,22 +162,52 @@ struct MonthSummaryCard: View {
     let expense: Double
     let income: Double
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("所选月份结余").font(.subheadline).foregroundStyle(.secondary)
-            MoneyText(value: income - expense, style: .largeTitle)
-            Divider()
+        VStack(alignment: .leading, spacing: 10) {
             AdaptiveRow {
                 item("支出", expense)
                 AdaptiveSpacer()
                 item("收入", income)
             }
-        }.padding(20).frame(maxWidth: .infinity, alignment: .leading).paperCard()
+        }
+        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
     private func item(_ title: String, _ value: Double) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(title).font(.caption).foregroundStyle(.secondary)
             MoneyText(value: value, style: .headline)
         }
+    }
+}
+
+struct TodayExpenseSummary: View {
+    let records: [TxRecord]
+    let onSelect: (TxRecord) -> Void
+    private var total: Double { records.reduce(0) { $0 + $1.amount } }
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            AdaptiveRow {
+                Text("今日支出").font(.headline)
+                AdaptiveSpacer()
+                MoneyText(value: total, style: .headline)
+            }
+            if records.isEmpty {
+                Text("今天还没有支出")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .padding(.vertical, 8)
+            } else {
+                ForEach(records) { record in
+                    Button { onSelect(record) } label: {
+                        TransactionRow(transaction: record)
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+        }
+        .padding(.top, 6)
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("今日支出，共 \(records.count) 笔")
     }
 }
 
@@ -181,8 +228,8 @@ struct MoneyText: View {
 struct DayHeader: View {
     let day: Date; let total: Double
     var body: some View {
-        AdaptiveRow { Text(day.asDayTitle); AdaptiveSpacer(); Text("净收支 \(total.asCurrency)") }
-            .font(.caption).foregroundStyle(.secondary)
+        AdaptiveRow { Text(day.asDayTitle); AdaptiveSpacer(); Text(total.asCurrency) }
+            .font(.caption.weight(.medium)).foregroundStyle(.secondary)
     }
 }
 
@@ -192,7 +239,7 @@ struct TransactionRow: View {
     var body: some View {
         AdaptiveRow {
             HStack(alignment: .top, spacing: 10) {
-                CategoryGlyph(name: transaction.categoryName, icon: transaction.categoryIcon)
+                CategoryGlyph(name: transaction.categoryName, icon: transaction.categoryIcon, size: 34)
                 VStack(alignment: .leading, spacing: 5) {
                     Text(transaction.displayCategory).font(.body).fixedSize(horizontal: false, vertical: true)
                     if !detail.isEmpty { Text(detail).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true) }
@@ -201,7 +248,10 @@ struct TransactionRow: View {
             if !typeSize.isAccessibilitySize { AdaptiveSpacer() }
             MoneyText(value: transaction.amount, prefix: transaction.type == .expense ? "−" : "+")
                 .frame(maxWidth: typeSize.isAccessibilitySize ? .infinity : 185, alignment: .trailing)
-        }.padding(.vertical, 6).accessibilityElement(children: .combine)
+        }
+        .padding(.vertical, 10)
+        .overlay(alignment: .bottom) { Rectangle().fill(PaperTheme.rule.opacity(0.72)).frame(height: 0.5) }
+        .accessibilityElement(children: .combine)
     }
     private var detail: String {
         var parts = [transaction.note].filter { !$0.isEmpty }

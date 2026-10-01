@@ -31,17 +31,40 @@ enum AppearanceMode: String, CaseIterable, Identifiable {
     }
 }
 
+private enum ExportTypeFilter: String, CaseIterable, Identifiable {
+    case all = "全部"
+    case expense = "支出"
+    case income = "收入"
+    var id: String { rawValue }
+    var transactionType: TransactionType? {
+        switch self {
+        case .all: return nil
+        case .expense: return .expense
+        case .income: return .income
+        }
+    }
+}
+
 struct SettingsView: View {
     @Query private var ledgers: [LedgerModel]
     @Environment(\.dismiss) private var dismiss
     @EnvironmentObject private var session: AppSession
     @AppStorage("appearanceMode") private var appearanceRaw = AppearanceMode.system.rawValue
+    @AppStorage("selectedLedger") private var currentLedger = LedgerChoice.legacyKey
     @Query(sort: \TxRecord.date, order: .reverse) private var all: [TxRecord]
     private var transactions: [TxRecord] { all.filter { !$0.isTrashed } }
+    private var ledgerChoices: [LedgerChoice] { LedgerChoice.choices(ledgers) }
+    private var exportTransactions: [TxRecord] {
+        LedgerAnalytics.records(transactions, ledger: exportLedger, month: exportMonth, type: exportType.transactionType)
+    }
     @State private var csvURL: URL?
     @State private var exportDate: Date?
     @State private var exportError: String?
     @State private var exporting = false
+    @State private var exportMonth = Date.now
+    @State private var exportLedger = LedgerChoice.legacyKey
+    @State private var exportType = ExportTypeFilter.all
+    @State private var initializedExport = false
     @State private var showCategories = false
     @State private var showSubscriptions = false
     @State private var showPinned = false
@@ -72,16 +95,31 @@ struct SettingsView: View {
                         .font(.footnote).foregroundStyle(.secondary)
                 }
                 Section {
-                    Button(exporting ? "正在准备…" : "准备最新账单 CSV", action: export)
-                        .disabled(exporting || transactions.isEmpty)
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("月份").font(.caption).foregroundStyle(.secondary)
+                        MonthPicker(month: $exportMonth)
+                    }
+                    Picker("账本", selection: $exportLedger) {
+                        ForEach(ledgerChoices) { Text($0.name).tag($0.id) }
+                    }
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("类型").font(.caption).foregroundStyle(.secondary)
+                        Picker("类型", selection: $exportType) {
+                            ForEach(ExportTypeFilter.allCases) { Text($0.rawValue).tag($0) }
+                        }
+                        .pickerStyle(.segmented)
+                        .labelsHidden()
+                    }
+                    Button(exporting ? "正在准备…" : "准备筛选账单 CSV", action: export)
+                        .disabled(exporting || exportTransactions.isEmpty)
                     if let url = csvURL {
                         ShareLink(item: url) { Label("分享已准备的账单", systemImage: "square.and.arrow.up") }
                         if let exportDate { Text("生成于 \(exportDate.formatted(date: .abbreviated, time: .shortened))").font(.caption).foregroundStyle(.secondary) }
                     }
-                    if transactions.isEmpty { Text("暂无账目可导出").foregroundStyle(.secondary) }
+                    if exportTransactions.isEmpty { Text("当前筛选条件下暂无账目").foregroundStyle(.secondary) }
                     InlineValidation(message: exportError)
                 } header: { Text("导出") } footer: {
-                    Text("包含所有账本的有效账目，不包含最近删除。修改账目后可重新准备最新文件。")
+                    Text("仅导出所选月份、账本和类型的有效账目，不包含最近删除。修改筛选条件后需重新准备文件。")
                 }
                 Section("关于") {
                     LabeledContent("名称", value: "轻账记")
@@ -94,6 +132,15 @@ struct SettingsView: View {
                 .sheet(isPresented: $showSubscriptions) { SubscriptionsView() }
                 .sheet(isPresented: $showPinned) { PinnedCategoryPicker() }
                 .sheet(isPresented: $showTrash) { RecentlyDeletedView() }
+                .onAppear {
+                    guard !initializedExport else { return }
+                    exportMonth = session.month
+                    exportLedger = currentLedger
+                    initializedExport = true
+                }
+                .onChange(of: exportMonth) { _, _ in invalidateExport() }
+                .onChange(of: exportLedger) { _, _ in invalidateExport() }
+                .onChange(of: exportType) { _, _ in invalidateExport() }
         }
     }
     private var appVersion: String {
@@ -104,9 +151,9 @@ struct SettingsView: View {
         exporting = true; exportError = nil; csvURL = nil
         let date = Date.now
         let df = DateFormatter(); df.dateFormat = "yyyy-MM-dd HH:mm"
-        let choices = LedgerChoice.choices(ledgers)
+        let choices = ledgerChoices
         var rows = ["日期,类型,金额,大类,子类,账本,备注,分期,状态"]
-        for record in transactions {
+        for record in exportTransactions {
             let fields = [df.string(from: record.date), record.type.rawValue, String(format: "%.2f", record.amount),
                           record.categoryName, record.subcategoryName,
                           choices.first { $0.id == record.ledgerKey }?.name ?? record.ledgerKey,
@@ -121,5 +168,11 @@ struct SettingsView: View {
             csvURL = url; exportDate = date
         } catch { exportError = "导出失败，请检查设备剩余空间后重试。" }
         exporting = false
+    }
+    private func invalidateExport() {
+        guard initializedExport else { return }
+        csvURL = nil
+        exportDate = nil
+        exportError = nil
     }
 }

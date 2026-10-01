@@ -24,15 +24,24 @@ struct CalculatorKeypad: View {
 
     @State private var calculationError: String?
     var body: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: 10) {
             ScrollView {
-                VStack(spacing: 8) {
-                    ForEach(keys, id: \.self) { row in
-                        HStack(spacing: 8) {
-                            ForEach(row, id: \.self) { key in keyButton(key) }
+                VStack(spacing: 0) {
+                    ForEach(Array(keys.enumerated()), id: \.offset) { rowIndex, row in
+                        HStack(spacing: 0) {
+                            ForEach(Array(row.enumerated()), id: \.offset) { keyIndex, key in
+                                keyButton(key)
+                                if keyIndex < row.count - 1 {
+                                    Rectangle().fill(PaperTheme.rule.opacity(0.65)).frame(width: 0.5)
+                                }
+                            }
+                        }
+                        if rowIndex < keys.count - 1 {
+                            Rectangle().fill(PaperTheme.rule.opacity(0.65)).frame(height: 0.5)
                         }
                     }
                 }
+                .overlay { Rectangle().stroke(PaperTheme.rule, lineWidth: 0.7) }
             }.scrollBounceBehavior(.basedOnSize)
             InlineValidation(message: calculationError)
             HStack(spacing: 8) {
@@ -51,7 +60,7 @@ struct CalculatorKeypad: View {
                 .disabled(!hasOperator && !canContinue)
                 .accessibilityIdentifier("entryNext")
             }
-        }.padding(10).background(PaperTheme.paper)
+        }.padding(.horizontal, 20).padding(.vertical, 12).background(PaperTheme.paper)
             .onChange(of: text) { _, _ in calculationError = nil }
     }
 
@@ -104,8 +113,8 @@ private extension View {
         self.font(.title2)
             .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
             .frame(maxWidth: .infinity)
-            .padding(.vertical, 8)
-            .frame(minHeight: 44)
+            .padding(.vertical, 12)
+            .frame(minHeight: 52)
             .fixedSize(horizontal: false, vertical: true)
             .contentShape(Rectangle())
     }
@@ -115,8 +124,8 @@ private struct PaperKeyStyle: ButtonStyle {
     var soft = false
     func makeBody(configuration: Configuration) -> some View {
         configuration.label.foregroundStyle(PaperTheme.ink)
-            .background((soft ? PaperTheme.soft : PaperTheme.surface).opacity(configuration.isPressed ? 0.65 : 1),
-                        in: RoundedRectangle(cornerRadius: 12))
-            .overlay { RoundedRectangle(cornerRadius: 12).stroke(PaperTheme.rule.opacity(0.5), lineWidth: 0.5) }
+            .background(configuration.isPressed ? PaperTheme.rule.opacity(0.55) : (soft ? PaperTheme.soft.opacity(0.55) : Color.clear))
+            .scaleEffect(configuration.isPressed ? 0.97 : 1)
+            .animation(.easeOut(duration: 0.08), value: configuration.isPressed)
     }
 }

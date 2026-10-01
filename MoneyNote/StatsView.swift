@@ -9,7 +9,7 @@ struct StatsView: View {
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
+                VStack(alignment: .leading, spacing: 20) {
                     LedgerPicker()
                     MonthPicker(month: $session.month)
                     Picker("收支类型", selection: $type) {
@@ -33,19 +33,31 @@ struct StatsBreakdown: View {
     private var overall: Double { monthly.reduce(0) { $0 + $1.amount } }
     private var stats: [CategoryTotal] { LedgerAnalytics.categories(scoped, children: parent != nil) }
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: 22) {
             VStack(alignment: .leading, spacing: 8) {
-                Text((parent == nil ? "所选月份" : parent! + " · ") + type.rawValue)
-                    .font(.subheadline).foregroundStyle(.secondary)
+                Text((parent == nil ? "本月" : parent!) + type.rawValue)
+                    .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
                 MoneyText(value: total, style: .largeTitle)
                 Text("\(scoped.count) 笔" + (parent == nil ? "" : " · 占本月\(type.rawValue) \(percent(overall > 0 ? total / overall : 0))"))
                     .font(.footnote).foregroundStyle(.secondary)
                 if scoped.contains(where: { $0.date > .now }) {
                     Text("包含未来日期的计划账目").font(.footnote).foregroundStyle(.secondary)
                 }
-            }.padding(20).frame(maxWidth: .infinity, alignment: .leading).paperCard()
+            }
+            .padding(.vertical, 20)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .overlay(alignment: .top) { Rectangle().fill(PaperTheme.ink).frame(height: 1.2) }
+            .overlay(alignment: .bottom) { Rectangle().fill(PaperTheme.rule).frame(height: 0.7) }
             if stats.isEmpty {
-                ContentUnavailableView("这个范围还没有账目", systemImage: "chart.bar.xaxis", description: Text("切换月份或账本后再看看。"))
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("这个范围还没有账目。")
+                        .font(.title2.weight(.semibold))
+                    Text("可以切换月份或账本。")
+                        .font(.subheadline).foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.vertical, 26)
+                .overlay(alignment: .top) { Rectangle().fill(PaperTheme.rule).frame(height: 0.7) }
             } else {
                 ViewThatFits(in: .horizontal) {
                     if !typeSize.isAccessibilitySize {
@@ -61,8 +73,8 @@ struct StatsBreakdown: View {
     }
     private var rankings: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text(parent == nil ? "分类构成" : "子分类构成").font(.headline).padding(.bottom, 8)
-            Text(parent == nil ? "点分类查看子类，再查看具体账目" : "占比以本类合计为分母，点子类查看账目")
+            Text(parent == nil ? "分类构成" : "子分类构成").font(.headline).padding(.bottom, 5)
+            Text(parent == nil ? "选择分类查看子类" : "选择子类查看账目")
                 .font(.caption).foregroundStyle(.secondary).padding(.bottom, 8)
             ForEach(stats) { stat in
                 if let parent {
@@ -81,7 +93,9 @@ struct StatsBreakdown: View {
                 }
                 if stat.id != stats.last?.id { Divider() }
             }
-        }.padding(20).paperCard()
+        }
+        .padding(.vertical, 16)
+        .overlay(alignment: .top) { Rectangle().fill(PaperTheme.rule).frame(height: 0.7) }
     }
     private func rankRow(_ stat: CategoryTotal) -> some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -92,7 +106,15 @@ struct StatsBreakdown: View {
                 Image(systemName: "chevron.right").font(.caption).foregroundStyle(.secondary).accessibilityHidden(true)
             }
             HStack(spacing: 12) {
-                ProgressView(value: stat.share).tint(PaperTheme.accent).accessibilityHidden(true)
+                GeometryReader { geometry in
+                    ZStack(alignment: .leading) {
+                        Rectangle().fill(PaperTheme.rule).frame(height: 2)
+                        Rectangle().fill(PaperTheme.ink)
+                            .frame(width: geometry.size.width * min(max(stat.share, 0), 1), height: 2)
+                    }
+                }
+                .frame(height: 2)
+                .accessibilityHidden(true)
                 Text(percent(stat.share)).font(.caption).monospacedDigit().foregroundStyle(.secondary)
             }
             if parent != nil {
@@ -108,7 +130,7 @@ struct StatsBreakdown: View {
                 let date = Calendar.current.date(byAdding: .month, value: index - 5, to: month) ?? month
                 let value = LedgerAnalytics.records(records, ledger: ledger, month: date, type: type, parent: parent).reduce(0) { $0 + $1.amount }
                 BarMark(x: .value("月份", date.formatted(.dateTime.month(.twoDigits))), y: .value("金额", value))
-                    .foregroundStyle(index == 5 ? PaperTheme.accent : PaperTheme.accent.opacity(0.45)).cornerRadius(4)
+                    .foregroundStyle(index == 5 ? PaperTheme.accent : PaperTheme.accent.opacity(0.28))
                     .accessibilityLabel(date.formatted(.dateTime.year().month(.wide).locale(Locale(identifier: "zh_CN"))))
                     .accessibilityValue((parent.map { $0 + "，" } ?? "") + type.rawValue + value.asCurrency)
             }.frame(height: 170)
@@ -122,7 +144,9 @@ struct StatsBreakdown: View {
                     }.padding(.vertical, 6).accessibilityElement(children: .combine)
                 }
             }.font(.subheadline)
-        }.padding(20).paperCard()
+        }
+        .padding(.vertical, 16)
+        .overlay(alignment: .top) { Rectangle().fill(PaperTheme.rule).frame(height: 0.7) }
     }
     private func percent(_ value: Double) -> String { String(format: "%.1f%%", value * 100) }
 }

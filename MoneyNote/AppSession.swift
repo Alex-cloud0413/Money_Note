@@ -83,7 +83,9 @@ struct SessionNotice: View {
                 }
             }
             .padding(.horizontal, 16).padding(.vertical, 6)
-            .paperCard().padding(.horizontal, 16).padding(.bottom, 8)
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+            .overlay { RoundedRectangle(cornerRadius: 12).stroke(PaperTheme.rule, lineWidth: 0.5) }
+            .padding(.horizontal, 16).padding(.bottom, 8)
             .accessibilityElement(children: .contain)
         }
     }

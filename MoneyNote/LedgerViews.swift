@@ -12,13 +12,11 @@ struct LedgerPicker: View {
             }
         } label: {
             HStack(spacing: 7) {
-                Image(systemName: "book.closed")
                 Text(choices.first { $0.id == selected }?.name ?? "生活账本")
                 Image(systemName: "chevron.down").font(.caption2)
             }
             .font(.subheadline.weight(.medium))
-            .padding(.horizontal, 14).padding(.vertical, 12)
-            .background(PaperTheme.soft, in: Capsule())
+            .frame(minHeight: 44)
         }
         .accessibilityIdentifier("ledgerPicker")
         .accessibilityLabel("切换账本")
@@ -38,8 +36,6 @@ struct LedgersView: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
-                    Text("把生活与事业，各自记好。")
-                        .font(.subheadline).foregroundStyle(.secondary)
                     MonthPicker(month: $session.month)
                     ForEach(LedgerChoice.choices(models)) { book in
                         VStack(alignment: .leading, spacing: 20) {
@@ -69,11 +65,14 @@ struct LedgersView: View {
                             Text("所选月份 \(entries.count) 笔记录")
                                 .font(.caption).foregroundStyle(.secondary)
                         }
-                        .padding(22).paperCard()
+                        .padding(.vertical, 20)
+                        .overlay(alignment: .top) { Rectangle().fill(PaperTheme.rule).frame(height: 0.7) }
                     }
                     Button { adding = true } label: {
-                        Label("新建账本", systemImage: "plus").frame(maxWidth: .infinity).padding(18)
-                    }.paperCard()
+                        Label("新建账本", systemImage: "plus").frame(maxWidth: .infinity, alignment: .leading).frame(minHeight: 52)
+                    }
+                    .buttonStyle(.plain)
+                    .overlay(alignment: .top) { Rectangle().fill(PaperTheme.rule).frame(height: 0.7) }
                     Text("每个账本独立汇总明细、统计、预算与订阅，适合区分生活、事业或其他用途。")
                         .font(.footnote).foregroundStyle(.secondary).padding(.horizontal, 4)
                 }.padding(20).readableWidth()

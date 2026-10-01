@@ -8,8 +8,10 @@ struct PrimaryButtonStyle: ButtonStyle {
             .padding(.horizontal, 20).padding(.vertical, 14)
             .frame(minHeight: 48)
             .background(PaperTheme.accent.opacity(enabled ? (configuration.isPressed ? 0.72 : 1) : 0.45),
-                        in: RoundedRectangle(cornerRadius: 16))
-            .contentShape(RoundedRectangle(cornerRadius: 16))
+                        in: RoundedRectangle(cornerRadius: 4))
+            .contentShape(RoundedRectangle(cornerRadius: 4))
+            .scaleEffect(configuration.isPressed ? 0.985 : 1)
+            .animation(.easeOut(duration: 0.08), value: configuration.isPressed)
     }
 }
 

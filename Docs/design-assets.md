@@ -41,3 +41,16 @@ Use case: precise-object-edit. Make the dark appearance variant of this exact iO
 着色提示词：
 
 Use case: precise-object-edit. Make the tinted appearance variant of this exact iOS bookkeeping icon. Preserve EXACT notebook outline, spine, two lines and yuan ¥ mark geometry, position, proportions and generous margins. Change colors only. Full-bleed solid pure black background, all notebook and yuan strokes flat pure white, interior same pure black background. No paper grain or gradients. This is a grayscale source for iOS tinted icon rendering. 1024x1024 square. No built-in rounded outer corners, no shadow, no outer border, no text, no green, no added shapes.
+
+
+## 白底与大图形调整
+
+标准浅色和深色外观统一使用纯白底、纯黑记账图形。根据真机观感，将图形的实际像素边界从约 80% 调整为约 61%，增加留白并保持小尺寸辨识度。系统着色外观保留独立的单色资源，并同步使用相同图形比例，由 iOS 按用户选择渲染。
+
+编辑提示词：
+
+Use case: precise-object-edit for a production iOS app icon. Edit the supplied current 1024x1024 MoneyNote icon. Preserve the exact bookkeeping symbol concept: one rounded ledger/notebook outline with its left spine, two short horizontal ledger lines, and one centered yuan/yen ¥ mark. Make only these design changes: (1) replace the entire background with flat, fully opaque pure white #FFFFFF, with no ivory tint, no paper texture, no grain, no gradient, no shadow; (2) enlarge the complete black ledger symbol uniformly around the canvas center so its outer bounds occupy roughly 74–76% of the canvas height and about 64–70% of the canvas width, leaving safe but much smaller margins for the iOS rounded mask; (3) render all symbol strokes crisp, solid pure black #000000 with consistent weight. Keep the symbol centered and front-facing. Do not add text, color, coins, charts, borders, an outer rounded-square frame, baked-in corner rounding, mockup, lighting, or 3D effects. Full-bleed square app icon asset, intended to remain legible at small Home Screen size.
+
+着色资源提示词：
+
+Precise production asset variant for an iOS tinted app icon. Preserve the supplied icon's exact enlarged ledger/notebook and centered ¥ symbol geometry, scale, stroke weight, position, and safe margins with no design changes. Convert only the colors: use a flat, fully opaque pure black #000000 full-bleed square background and render the complete ledger/notebook and ¥ symbol in solid pure white #FFFFFF. No texture, grain, gradient, shadow, antialias haze, extra border, text, coins, charts, baked corner rounding, mockup, lighting, or 3D effects. This is a monochrome source asset for iOS system tinting.

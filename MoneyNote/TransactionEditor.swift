@@ -64,6 +64,7 @@ struct TransactionEditor: View {
     @State private var managingCategories = false
     @State private var choosingChild = false
     @FocusState private var noteFocused: Bool
+    @GestureState private var backSwipeOffset: CGFloat = 0
 
     private var keepsLegacyCategory: Bool {
         editing != nil && selectedParent == nil && editing?.type == type
@@ -128,11 +129,12 @@ struct TransactionEditor: View {
                     stepContent
                         .id(step)
                         .transition(stepTransition)
+                        .offset(x: step == .amount ? 0 : backSwipeOffset)
                 }
                 .clipped()
             }
             .paperScreen()
-            .navigationTitle(editing == nil ? "记一笔 · \(step.title)" : "编辑账目 · \(step.title)")
+            .navigationTitle(editing == nil ? "记一笔" : "编辑账目")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -180,22 +182,32 @@ struct TransactionEditor: View {
     }
 
     private var stepIndicator: some View {
-        HStack(spacing: 8) {
-            ForEach(EntryStep.allCases, id: \.self) { item in
-                HStack(spacing: 6) {
-                    Text("\(item.rawValue + 1)")
-                        .font(.caption.weight(.semibold))
-                        .dynamicTypeSize(...DynamicTypeSize.xxxLarge)
-                        .frame(width: 28, height: 28)
-                        .foregroundStyle(item.rawValue <= step.rawValue ? PaperTheme.onAccent : PaperTheme.ink)
-                        .background(item.rawValue <= step.rawValue ? PaperTheme.accent : PaperTheme.soft, in: Circle())
-                    if !typeSize.isAccessibilitySize { Text(item.title).font(.caption) }
+        VStack(spacing: 10) {
+            HStack(spacing: 0) {
+                ForEach(EntryStep.allCases, id: \.self) { item in
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(String(format: "%02d", item.rawValue + 1))
+                            .font(.caption2.monospacedDigit())
+                        if !typeSize.isAccessibilitySize {
+                            Text(item.title).font(.subheadline.weight(item == step ? .semibold : .regular))
+                        }
+                    }
+                    .foregroundStyle(item == step ? PaperTheme.ink : Color.secondary)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                if item != .details { Rectangle().fill(PaperTheme.rule).frame(height: 1) }
             }
+            GeometryReader { geometry in
+                ZStack(alignment: .leading) {
+                    Rectangle().fill(PaperTheme.rule).frame(height: 1)
+                    Rectangle().fill(PaperTheme.ink)
+                        .frame(width: geometry.size.width * CGFloat(step.rawValue + 1) / CGFloat(EntryStep.allCases.count), height: 1.5)
+                }
+            }
+            .frame(height: 2)
         }
         .padding(.horizontal, 20)
-        .padding(.vertical, 12)
+        .padding(.top, 12)
+        .padding(.bottom, 10)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("第 \(step.rawValue + 1) 步，共 3 步，\(step.title)")
     }
@@ -230,8 +242,6 @@ struct TransactionEditor: View {
     private var amountOverview: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                Text("先确定这笔账的类型与金额。")
-                    .font(.subheadline).foregroundStyle(.secondary)
                 Picker("收支类型", selection: Binding(get: { type }, set: { value in
                     type = value
                     selectedParent = nil
@@ -243,18 +253,20 @@ struct TransactionEditor: View {
                 }
                 .pickerStyle(.segmented)
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("金额").font(.subheadline).foregroundStyle(.secondary)
+                    Text("金额").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
                     ScrollView(.horizontal, showsIndicators: false) {
                         Text("¥" + (amountText.isEmpty ? "0" : amountText))
-                            .font(.system(.largeTitle, design: .serif)).monospacedDigit().fixedSize()
+                            .font(.system(size: 50, weight: .regular, design: .serif)).monospacedDigit().fixedSize()
+                            .minimumScaleFactor(0.62)
                     }
                     if amountText.contains(where: { "+-×÷".contains($0) }), let value = amountValue {
                         Text("计算结果 \(value.asCurrency)").font(.footnote).foregroundStyle(.secondary)
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(18)
-                .paperCard()
+                .padding(.vertical, 22)
+                .overlay(alignment: .top) { Rectangle().fill(PaperTheme.ink).frame(height: 1.2) }
+                .overlay(alignment: .bottom) { Rectangle().fill(PaperTheme.rule).frame(height: 0.7) }
                 InlineValidation(message: amountText.isEmpty ? nil : amountValidation)
                 if restoredDraft {
                     Text("已恢复上次未完成的记账")
@@ -278,8 +290,8 @@ struct TransactionEditor: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 stepSummary(title: type.rawValue, value: amountValue?.asCurrency ?? "¥0.00")
-                Text("选择一级分类后，会自动显示它的子分类。")
-                    .font(.subheadline).foregroundStyle(.secondary)
+                Text("一级分类")
+                    .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
                 let columns = Array(repeating: GridItem(.flexible(), spacing: 10), count: typeSize.isAccessibilitySize ? 2 : 3)
                 LazyVGrid(columns: columns, spacing: 10) {
                     ForEach(topCategories) { parent in
@@ -293,8 +305,11 @@ struct TransactionEditor: View {
                             }
                             .frame(maxWidth: .infinity, minHeight: 92)
                             .padding(8)
-                            .background(selected ? PaperTheme.soft : PaperTheme.surface, in: RoundedRectangle(cornerRadius: 16))
-                            .overlay { RoundedRectangle(cornerRadius: 16).stroke(selected ? PaperTheme.accent : PaperTheme.rule, lineWidth: selected ? 1.5 : 0.5) }
+                            .background(selected ? PaperTheme.soft.opacity(0.72) : Color.clear)
+                            .overlay(alignment: .bottom) {
+                                Rectangle().fill(selected ? PaperTheme.ink : PaperTheme.rule)
+                                    .frame(height: selected ? 1.5 : 0.6)
+                            }
                         }
                         .buttonStyle(.plain)
                         .accessibilityAddTraits(selected ? .isSelected : [])
@@ -313,7 +328,7 @@ struct TransactionEditor: View {
                     }
                     .buttonStyle(.plain)
                 }
-                InlineValidation(message: categoryValidation)
+                InlineValidation(message: selectedParent == nil ? nil : categoryValidation)
                 Button { managingCategories = true } label: {
                     Label("管理分类", systemImage: "slider.horizontal.3")
                         .frame(maxWidth: .infinity).frame(minHeight: 44)
@@ -340,8 +355,9 @@ struct TransactionEditor: View {
                     Text(type.rawValue).font(.caption).foregroundStyle(.secondary)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(18)
-                .paperCard()
+                .padding(.vertical, 18)
+                .overlay(alignment: .top) { Rectangle().fill(PaperTheme.ink).frame(height: 1.2) }
+                .overlay(alignment: .bottom) { Rectangle().fill(PaperTheme.rule).frame(height: 0.7) }
 
                 VStack(alignment: .leading, spacing: 12) {
                     Picker("账本", selection: $ledgerKey) {
@@ -369,8 +385,9 @@ struct TransactionEditor: View {
                         }
                     }
                 }
-                .padding(16)
-                .paperCard()
+                .padding(.vertical, 6)
+                .overlay(alignment: .top) { Rectangle().fill(PaperTheme.rule).frame(height: 0.7) }
+                .overlay(alignment: .bottom) { Rectangle().fill(PaperTheme.rule).frame(height: 0.7) }
                 InlineValidation(message: finalValidation)
             }
             .padding(20)
@@ -421,8 +438,8 @@ struct TransactionEditor: View {
             Spacer()
             Text(value).font(.system(.title3, design: .serif)).monospacedDigit()
         }
-        .padding(16)
-        .paperCard()
+        .padding(.vertical, 14)
+        .overlay(alignment: .bottom) { Rectangle().fill(PaperTheme.rule).frame(height: 0.7) }
     }
 
     private func stepFooter(_ title: String, canContinue: Bool,
@@ -441,7 +458,8 @@ struct TransactionEditor: View {
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 10)
-        .background(PaperTheme.paper)
+        .background(PaperTheme.surface.opacity(0.96))
+        .overlay(alignment: .top) { Rectangle().fill(PaperTheme.rule).frame(height: 0.7) }
     }
 
     private func primaryStepButton(_ title: String, canContinue: Bool,
@@ -459,12 +477,7 @@ struct TransactionEditor: View {
                 .lineLimit(1)
                 .frame(minWidth: 88, minHeight: 48)
                 .foregroundStyle(PaperTheme.ink)
-                .background(PaperTheme.soft, in: RoundedRectangle(cornerRadius: 16))
-                .overlay {
-                    RoundedRectangle(cornerRadius: 16)
-                        .stroke(PaperTheme.rule, lineWidth: 0.5)
-                }
-                .contentShape(RoundedRectangle(cornerRadius: 16))
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier("entryBack")
@@ -472,7 +485,13 @@ struct TransactionEditor: View {
     }
 
     private var previousStepSwipe: some Gesture {
-        DragGesture(minimumDistance: 24, coordinateSpace: .local)
+        DragGesture(minimumDistance: 10, coordinateSpace: .local)
+            .updating($backSwipeOffset) { value, state, _ in
+                guard step != .amount,
+                      value.translation.width > 0,
+                      value.translation.width > abs(value.translation.height) else { return }
+                state = min(value.translation.width, 140)
+            }
             .onEnded { value in
                 guard step != .amount else { return }
                 let horizontal = value.translation.width
@@ -503,7 +522,7 @@ struct TransactionEditor: View {
 
     private func move(to newStep: EntryStep, forward: Bool) {
         direction = forward ? 1 : -1
-        withAnimation(reduceMotion ? nil : .smooth(duration: 0.28)) { step = newStep }
+        withAnimation(reduceMotion ? nil : .spring(response: 0.32, dampingFraction: 1)) { step = newStep }
     }
 
     private func setup() {

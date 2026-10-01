@@ -13,7 +13,7 @@ struct BudgetView: View {
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(alignment: .leading, spacing: 16) {
+                VStack(alignment: .leading, spacing: 20) {
                     LedgerPicker()
                     MonthPicker(month: $session.month)
                     if let total = budgets.first(where: \.isTotal) {
@@ -33,7 +33,7 @@ struct BudgetView: View {
                             BudgetProgressCard(title: budget.categoryName, icon: "", spent: spent(budget.categoryName), limit: budget.amount)
                         }.buttonStyle(.plain)
                     }
-                    Text("每个月的预算独立设置，修改当前月份不会影响其他月份。计划账目也计入所选月份的预算占用。")
+                    Text("预算按月独立设置，计划账目计入当月。")
                         .font(.footnote).foregroundStyle(.secondary)
                 }.padding(20).readableWidth()
             }.paperScreen().navigationTitle("预算").navigationBarTitleDisplayMode(.inline)
@@ -49,20 +49,32 @@ struct BudgetView: View {
 
 struct BudgetProgressCard: View {
     let title: String; let icon: String; let spent: Double; let limit: Double
+    var showsTopRule = true
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 13) {
             AdaptiveRow {
                 Text(title).font(.headline); AdaptiveSpacer()
                 Text(spent > limit ? "超支 \((spent - limit).asCurrency)" : "剩余 \((limit - spent).asCurrency)")
                     .font(.subheadline).fixedSize(horizontal: false, vertical: true)
             }
-            ProgressView(value: min(max(spent, 0), max(limit, 0.01)), total: max(limit, 0.01))
-                .tint(PaperTheme.accent).accessibilityLabel("预算使用进度")
+            GeometryReader { geometry in
+                let progress = min(max(spent / max(limit, 0.01), 0), 1)
+                ZStack(alignment: .leading) {
+                    Rectangle().fill(PaperTheme.rule).frame(height: 3)
+                    Rectangle().fill(PaperTheme.ink).frame(width: geometry.size.width * progress, height: 3)
+                }
+            }
+                .frame(height: 3)
+                .accessibilityLabel("预算使用进度")
                 .accessibilityValue(limit > 0 ? "\(Int(spent / limit * 100))%" : "未设置")
             AdaptiveRow {
                 Text("已计入 \(spent.asCurrency)"); AdaptiveSpacer(); Text("预算 \(limit.asCurrency)")
             }.font(.caption).foregroundStyle(.secondary)
-        }.padding(18).paperCard()
+        }
+        .padding(.vertical, 18)
+        .overlay(alignment: .top) {
+            if showsTopRule { Rectangle().fill(PaperTheme.rule).frame(height: 0.7) }
+        }
     }
 }
 

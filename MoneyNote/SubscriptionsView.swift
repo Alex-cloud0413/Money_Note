@@ -25,20 +25,24 @@ struct SubscriptionsView: View {
                                 Text("每月常规平摊").font(.subheadline).foregroundStyle(.secondary)
                                 MoneyText(value: subscriptions.filter(\.isActive).reduce(0) { $0 + $1.monthlyAmortized }, style: .largeTitle)
                                 Text("\(subscriptions.filter(\.isActive).count) 个进行中 · 不含首期优惠差额").font(.caption).foregroundStyle(.secondary)
-                            }.padding(20).frame(maxWidth: .infinity, alignment: .leading).paperCard()
+                            }
+                                .padding(.vertical, 20)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .overlay(alignment: .top) { Rectangle().fill(PaperTheme.ink).frame(height: 1.2) }
+                                .overlay(alignment: .bottom) { Rectangle().fill(PaperTheme.rule).frame(height: 0.7) }
                                 .listRowInsets(EdgeInsets()).listRowBackground(Color.clear)
                         }
                         Section("订阅清单") {
                             ForEach(subscriptions) { sub in
                                 Button { editing = sub } label: { SubscriptionRow(sub: sub) }.buttonStyle(.plain)
-                                    .listRowBackground(PaperTheme.surface)
+                                    .listRowBackground(Color.clear)
                                     .swipeActions(allowsFullSwipe: false) { Button("管理") { editing = sub }.tint(PaperTheme.accent) }
                             }
                         }
                     }
                     Section { Text("这里仅显示上方账本的订阅。停止订阅会保留历史账目；彻底删除需进入编辑页确认。")
                         .font(.footnote).foregroundStyle(.secondary) }
-                }.readableWidth()
+                }.listStyle(.plain).readableWidth()
             }.paperScreen().navigationTitle("订阅").navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) { Button("完成") { dismiss() } }

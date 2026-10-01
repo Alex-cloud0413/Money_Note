@@ -10,7 +10,7 @@ private struct PinnedLedgerCards: View {
     let records: [TxRecord]
     @AppStorage private var raw: String
     @Query private var categories: [CategoryModel]
-    @State private var expanded = false
+    @State private var showing = false
     init(ledger: String, records: [TxRecord]) {
         self.records = records
         _raw = AppStorage(wrappedValue: "", ledger == "life" ? "pinnedCategoryNames" : "pinnedCategoryNames." + ledger)
@@ -18,15 +18,51 @@ private struct PinnedLedgerCards: View {
     private var names: [String] { CategoryOperations.resolvedPins(raw, categories: categories) }
     var body: some View {
         if !names.isEmpty {
-            DisclosureGroup("关注分类", isExpanded: $expanded) {
+            Button { showing = true } label: {
+                Text("关注分类")
+                    .font(.subheadline.weight(.medium))
+                    .frame(maxWidth: .infinity, minHeight: 44, alignment: .center)
+            }
+            .buttonStyle(.plain)
+            .sheet(isPresented: $showing) {
+                PinnedCategorySummary(names: names, records: records, categories: categories)
+                    .presentationDetents([.medium, .large])
+                    .presentationDragIndicator(.visible)
+            }
+        }
+    }
+}
+
+private struct PinnedCategorySummary: View {
+    @Environment(\.dismiss) private var dismiss
+    let names: [String]
+    let records: [TxRecord]
+    let categories: [CategoryModel]
+    var body: some View {
+        NavigationStack {
+            PaperList {
                 ForEach(names, id: \.self) { name in
                     AdaptiveRow {
-                        HStack { CategoryGlyph(name: name, icon: categories.first { $0.parent == nil && $0.type == .expense && $0.name == name }?.icon ?? "", size: 30); Text(name) }
+                        HStack {
+                            CategoryGlyph(name: name, icon: categories.first {
+                                $0.parent == nil && $0.type == .expense && $0.name == name
+                            }?.icon ?? "", size: 30)
+                            Text(name)
+                        }
                         AdaptiveSpacer()
-                        MoneyText(value: records.filter { !$0.isTrashed && $0.type == .expense && $0.categoryName == name }.reduce(0) { $0 + $1.amount })
-                    }.padding(.vertical, 8)
+                        MoneyText(value: records.filter {
+                            !$0.isTrashed && $0.type == .expense && $0.categoryName == name
+                        }.reduce(0) { $0 + $1.amount })
+                    }
+                    .padding(.vertical, 8)
+                    .listRowBackground(Color.clear)
                 }
-            }.font(.subheadline).padding(16).paperCard()
+            }
+            .listStyle(.plain)
+            .paperScreen()
+            .navigationTitle("关注分类")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { dismiss() } } }
         }
     }
 }
@@ -48,7 +84,7 @@ private struct PinnedSelection: View {
     private var names: [String] { CategoryOperations.resolvedPins(raw, categories: categories) }
     var body: some View {
         PaperList {
-            Section { Text("选中后立即生效，仅影响当前账本。在明细页展开「关注分类」即可查看所选月份的支出。")
+            Section { Text("选中后立即生效，仅影响当前账本。在明细页点按「关注分类」即可查看所选月份的支出。")
                 .font(.footnote).foregroundStyle(.secondary) }
             ForEach(categories.filter { $0.parent == nil && $0.type == .expense && (!$0.isArchived || names.contains($0.name)) }) { category in
                 Button {
