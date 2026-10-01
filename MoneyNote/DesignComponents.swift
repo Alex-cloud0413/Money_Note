@@ -27,6 +27,19 @@ struct AdaptiveRow<Content: View>: View {
     }
 }
 
+struct LedgerMonthHeader: View {
+    @Binding var month: Date
+    var body: some View {
+        AdaptiveRow {
+            LedgerPicker()
+            AdaptiveSpacer()
+            MonthPicker(month: $month).frame(maxWidth: 350)
+        }
+        .padding(.horizontal, 20)
+        .padding(.bottom, 8)
+    }
+}
+
 struct InlineValidation: View {
     let message: String?
     var body: some View {

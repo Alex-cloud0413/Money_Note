@@ -38,9 +38,7 @@ struct ContentView: View {
             GeometryReader { geometry in
                 let wide = geometry.size.width >= 800 && !typeSize.isAccessibilitySize
                 VStack(spacing: 0) {
-                    AdaptiveRow { LedgerPicker(); AdaptiveSpacer(); MonthPicker(month: $session.month).frame(maxWidth: 350) }
-                        .padding(.horizontal, 20)
-                        .padding(.bottom, 8)
+                    LedgerMonthHeader(month: $session.month)
                     if wide {
                         HStack(alignment: .top, spacing: 4) {
                             ScrollView { summary.padding(20) }.frame(width: min(380, geometry.size.width * 0.34))

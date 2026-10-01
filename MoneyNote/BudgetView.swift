@@ -12,31 +12,32 @@ struct BudgetView: View {
     private var budgets: [BudgetModel] { BudgetRules.effective(allBudgets, ledger: ledger, month: session.month) }
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
-                    LedgerPicker()
-                    MonthPicker(month: $session.month)
-                    if let total = budgets.first(where: \.isTotal) {
-                        Button { editing = total } label: {
-                            BudgetProgressCard(title: "总预算", icon: "circle.dashed", spent: spent(nil), limit: total.amount)
-                        }.buttonStyle(.plain)
-                    } else {
-                        Button("设置本月总预算") { addingTotal = true }.buttonStyle(PrimaryButtonStyle())
-                    }
-                    HStack {
-                        Text("分类预算").font(.headline); Spacer()
-                        Button { addingCategory = true } label: { Image(systemName: "plus").frame(width: 44, height: 44) }
-                            .accessibilityLabel("添加分类预算")
-                    }
-                    ForEach(budgets.filter { !$0.isTotal }) { budget in
-                        Button { editing = budget } label: {
-                            BudgetProgressCard(title: budget.categoryName, icon: "", spent: spent(budget.categoryName), limit: budget.amount)
-                        }.buttonStyle(.plain)
-                    }
-                    Text("预算按月独立设置，计划账目计入当月。")
-                        .font(.footnote).foregroundStyle(.secondary)
-                }.padding(20).readableWidth()
-            }.paperScreen().navigationTitle("预算").navigationBarTitleDisplayMode(.inline)
+            VStack(spacing: 0) {
+                LedgerMonthHeader(month: $session.month)
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 20) {
+                        if let total = budgets.first(where: \.isTotal) {
+                            Button { editing = total } label: {
+                                BudgetProgressCard(title: "总预算", icon: "circle.dashed", spent: spent(nil), limit: total.amount)
+                            }.buttonStyle(.plain)
+                        } else {
+                            Button("设置本月总预算") { addingTotal = true }.buttonStyle(PrimaryButtonStyle())
+                        }
+                        HStack {
+                            Text("分类预算").font(.headline); Spacer()
+                            Button { addingCategory = true } label: { Image(systemName: "plus").frame(width: 44, height: 44) }
+                                .accessibilityLabel("添加分类预算")
+                        }
+                        ForEach(budgets.filter { !$0.isTotal }) { budget in
+                            Button { editing = budget } label: {
+                                BudgetProgressCard(title: budget.categoryName, icon: "", spent: spent(budget.categoryName), limit: budget.amount)
+                            }.buttonStyle(.plain)
+                        }
+                        Text("预算按月独立设置，计划账目计入当月。")
+                            .font(.footnote).foregroundStyle(.secondary)
+                    }.padding(20).readableWidth()
+                }
+            }.readableWidth(1200).paperScreen().navigationTitle("预算").navigationBarTitleDisplayMode(.inline)
                 .sheet(item: $editing) { BudgetEditView(budget: $0, month: session.month) }
                 .sheet(isPresented: $addingTotal) { BudgetEditView(budget: nil, isTotalNew: true, month: session.month) }
                 .sheet(isPresented: $addingCategory) { BudgetEditView(budget: nil, month: session.month) }

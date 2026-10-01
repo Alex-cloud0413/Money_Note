@@ -8,16 +8,17 @@ struct StatsView: View {
     @State private var type = TransactionType.expense
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 20) {
-                    LedgerPicker()
-                    MonthPicker(month: $session.month)
-                    Picker("收支类型", selection: $type) {
-                        ForEach(TransactionType.allCases, id: \.self) { Text($0.rawValue).tag($0) }
-                    }.pickerStyle(.segmented)
-                    StatsBreakdown(ledger: ledger, month: session.month, type: type)
-                }.padding(20).readableWidth(1100)
-            }.paperScreen().navigationTitle("统计").navigationBarTitleDisplayMode(.inline)
+            VStack(spacing: 0) {
+                LedgerMonthHeader(month: $session.month)
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 20) {
+                        Picker("收支类型", selection: $type) {
+                            ForEach(TransactionType.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+                        }.pickerStyle(.segmented)
+                        StatsBreakdown(ledger: ledger, month: session.month, type: type)
+                    }.padding(20).readableWidth(1100)
+                }
+            }.readableWidth(1200).paperScreen().navigationTitle("统计").navigationBarTitleDisplayMode(.inline)
         }
     }
 }
