@@ -224,25 +224,25 @@ struct TransactionEditor: View {
 
     private var amountStep: some View {
         GeometryReader { geometry in
-            if geometry.size.width >= 700 && geometry.size.height >= 300 && !typeSize.isAccessibilitySize {
+            if geometry.size.width >= 700 && !typeSize.isAccessibilitySize {
                 HStack(spacing: 0) {
                     amountOverview
                         .frame(width: geometry.size.width * 0.43)
                     Divider()
-                    amountKeypad
+                    amountKeypad()
                 }
             } else if geometry.size.height < 500 || typeSize.isAccessibilitySize {
                 ScrollView {
                     VStack(spacing: 0) {
                         amountOverviewContent
-                        amountKeypad.frame(height: typeSize.isAccessibilitySize ? 460 : 340)
+                        amountKeypad(scrollsKeys: false)
                     }
                 }
                 .scrollBounceBehavior(.basedOnSize)
             } else {
                 VStack(spacing: 0) {
                     amountOverview
-                    amountKeypad
+                    amountKeypad()
                         .frame(maxHeight: typeSize.isAccessibilitySize ? .infinity : 340)
                 }
             }
@@ -290,9 +290,9 @@ struct TransactionEditor: View {
             .readableWidth()
     }
 
-    private var amountKeypad: some View {
+    private func amountKeypad(scrollsKeys: Bool = true) -> some View {
         CalculatorKeypad(text: $amountText, clearOnNextInput: $clearOnNextInput,
-                         canContinue: amountValidation == nil) {
+                         canContinue: amountValidation == nil, scrollsKeys: scrollsKeys) {
             if amountValidation == nil { move(to: .category, forward: true) }
         }
         .overlay(alignment: .top) { Divider() }

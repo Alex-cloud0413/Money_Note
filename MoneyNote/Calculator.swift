@@ -7,6 +7,7 @@ struct CalculatorKeypad: View {
     /// 为 true 时，按下第一个数字键会先把原内容清空（用于编辑已有金额）
     @Binding var clearOnNextInput: Bool
     var canContinue = true
+    var scrollsKeys = true
     var onDone: () -> Void
 
     /// 表达式里有没有运算符（有就显示「＝」，按一下算结果）
@@ -25,24 +26,11 @@ struct CalculatorKeypad: View {
     @State private var calculationError: String?
     var body: some View {
         VStack(spacing: 10) {
-            ScrollView {
-                VStack(spacing: 0) {
-                    ForEach(Array(keys.enumerated()), id: \.offset) { rowIndex, row in
-                        HStack(spacing: 0) {
-                            ForEach(Array(row.enumerated()), id: \.offset) { keyIndex, key in
-                                keyButton(key)
-                                if keyIndex < row.count - 1 {
-                                    Rectangle().fill(PaperTheme.rule.opacity(0.65)).frame(width: 0.5)
-                                }
-                            }
-                        }
-                        if rowIndex < keys.count - 1 {
-                            Rectangle().fill(PaperTheme.rule.opacity(0.65)).frame(height: 0.5)
-                        }
-                    }
-                }
-                .overlay { Rectangle().stroke(PaperTheme.rule, lineWidth: 0.7) }
-            }.scrollBounceBehavior(.basedOnSize)
+            if scrollsKeys {
+                ScrollView { keyGrid }.scrollBounceBehavior(.basedOnSize)
+            } else {
+                keyGrid
+            }
             InlineValidation(message: calculationError)
             HStack(spacing: 8) {
                 Button { text = ""; clearOnNextInput = false } label: { Text("清空").keyLabel() }
@@ -62,6 +50,25 @@ struct CalculatorKeypad: View {
             }
         }.padding(.horizontal, 20).padding(.vertical, 12).background(PaperTheme.paper)
             .onChange(of: text) { _, _ in calculationError = nil }
+    }
+
+    private var keyGrid: some View {
+        VStack(spacing: 0) {
+            ForEach(Array(keys.enumerated()), id: \.offset) { rowIndex, row in
+                HStack(spacing: 0) {
+                    ForEach(Array(row.enumerated()), id: \.offset) { keyIndex, key in
+                        keyButton(key)
+                        if keyIndex < row.count - 1 {
+                            Rectangle().fill(PaperTheme.rule.opacity(0.65)).frame(width: 0.5)
+                        }
+                    }
+                }
+                if rowIndex < keys.count - 1 {
+                    Rectangle().fill(PaperTheme.rule.opacity(0.65)).frame(height: 0.5)
+                }
+            }
+        }
+        .overlay { Rectangle().stroke(PaperTheme.rule, lineWidth: 0.7) }
     }
 
     private func keyButton(_ key: String) -> some View {

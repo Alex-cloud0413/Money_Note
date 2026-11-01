@@ -2,7 +2,7 @@
 
 用简约的纸质界面，分别记好生活和事业。原生 iPhone / iPad 记账应用，使用 SwiftUI、SwiftData 和 CloudKit。
 
-当前开发版本：**1.4.2（构建 13）**。本仓库保存源码和开发历史，App Store 发布状态独立于代码提交。
+当前开发版本：**1.4.2（构建 14）**。本仓库保存源码和开发历史，App Store 发布状态独立于代码提交。
 
 ## 本次更新
 
@@ -28,7 +28,7 @@
 
 ## 开发
 
-使用 Xcode 打开 `MoneyNote.xcodeproj`，运行 `MoneyNote` scheme。最低 iOS 17，当前使用 Xcode 27.2。1.4.2 构建 12 已在 iPhone 17 上完成覆盖升级、旧数据保留及正式 CloudKit 同步核验；构建 13 的 Duo 验证范围见 [适配记录](Docs/verification-iphone-duo.md)。
+使用 Xcode 打开 `MoneyNote.xcodeproj`，运行 `MoneyNote` scheme。最低 iOS 17，当前使用 Xcode 27.2。1.4.2 构建 12 已在 iPhone 17 上完成覆盖升级、旧数据保留及正式 CloudKit 同步核验；构建 14 的 Duo 验证范围见 [适配记录](Docs/verification-iphone-duo.md)。
 
 ```sh
 xcodebuild -project MoneyNote.xcodeproj -scheme MoneyNote \
