@@ -133,8 +133,8 @@ struct BudgetEditView: View {
                 }
             }.paperScreen().navigationTitle(isTotal ? "总预算" : "分类预算").navigationBarTitleDisplayMode(.inline)
                 .toolbar {
-                    ToolbarItem(placement: .cancellationAction) { Button("取消") { if didSetup && fingerprint != baseline { discard = true } else { dismiss() } } }
-                    ToolbarItem(placement: .confirmationAction) { Button("保存", action: save).disabled(validation != nil) }
+                    ToolbarItem(placement: .cancellationAction) { Button { if didSetup && fingerprint != baseline { discard = true } else { dismiss() } } label: { Label("取消", systemImage: "xmark") } }
+                    ToolbarItem(placement: .confirmationAction) { Button(action: save) { Label("保存", systemImage: "checkmark") }.disabled(validation != nil) }
                 }
                 .onAppear {
                     guard !didSetup else { return }

@@ -117,8 +117,8 @@ struct LedgerEditor: View {
                 .navigationTitle(editing == nil ? "新建账本" : "编辑账本")
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
-                    ToolbarItem(placement: .cancellationAction) { Button("取消") { if name != baseline { discard = true } else { dismiss() } } }
-                    ToolbarItem(placement: .confirmationAction) { Button("完成", action: save).disabled(!valid) }
+                    ToolbarItem(placement: .cancellationAction) { Button { if name != baseline { discard = true } else { dismiss() } } label: { Label("取消", systemImage: "xmark") } }
+                    ToolbarItem(placement: .confirmationAction) { Button(action: save) { Label("完成", systemImage: "checkmark") }.disabled(!valid) }
                 }
                 .onAppear { guard !setupDone else { return }; name = editing?.name ?? ""; baseline = name; setupDone = true }
                 .protectDraft(setupDone && name != baseline, confirming: $discard) { dismiss() }

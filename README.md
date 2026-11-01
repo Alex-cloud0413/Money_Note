@@ -2,12 +2,15 @@
 
 用简约的纸质界面，分别记好生活和事业。原生 iPhone / iPad 记账应用，使用 SwiftUI、SwiftData 和 CloudKit。
 
-当前开发版本：**1.4.2（构建 12）**。本仓库保存源码和开发历史，App Store 发布状态独立于代码提交。
+当前开发版本：**1.4.2（构建 13）**。本仓库保存源码和开发历史，App Store 发布状态独立于代码提交。
 
 ## 本次更新
 
-1.4.2 修复两处设置交互：
+1.4.2 改善可变尺寸布局，并修复两处设置交互：
 
+- 为 iPhone Duo 的竖向工具栏补齐弹窗操作的标题与图标。
+- 金额页只在空间足够时使用双栏；窄矮窗口和辅助字号使用可滚动布局，保留输入与步骤。
+- 保存提示改为随系统安全区域布局，为撤销和关闭操作预留空间。
 - 导出账单时，月份按钮可独立响应，支持连续前后切换，并保留完整的 44×44 点点击区域。
 - 切换浅色、深色或跟随系统后，已打开的设置页面立即更新，无需退出重进。
 - Release 构建明确使用正式 CloudKit 环境，与 App Store 版本连接同一套 iCloud 数据。
@@ -25,7 +28,7 @@
 
 ## 开发
 
-使用 Xcode 打开 `MoneyNote.xcodeproj`，运行 `MoneyNote` scheme。最低 iOS 17，1.4.2 验证环境为 Xcode 27.2 / iOS 26.5 Simulator，并已在 iPhone 17 上完成覆盖升级、启动、旧数据保留与正式 CloudKit 同步核验。
+使用 Xcode 打开 `MoneyNote.xcodeproj`，运行 `MoneyNote` scheme。最低 iOS 17，当前使用 Xcode 27.2。1.4.2 构建 12 已在 iPhone 17 上完成覆盖升级、旧数据保留及正式 CloudKit 同步核验；构建 13 的 Duo 验证范围见 [适配记录](Docs/verification-iphone-duo.md)。
 
 ```sh
 xcodebuild -project MoneyNote.xcodeproj -scheme MoneyNote \
@@ -38,6 +41,8 @@ xcodebuild -project MoneyNote.xcodeproj -scheme MoneyNote \
 `Release` 使用 `MoneyNote.Release.entitlements`，将 CloudKit 环境明确设为 `Production`；直接安装真机时也应核验最终签名的环境，避免与商店版使用不同的数据环境。App Store 导出由 Xcode 按分发签名重签名。
 
 Debug 运行参数 `--preview-data` 启用隔离的内存示例数据，不打开用户的持久化数据库或连接 CloudKit。普通启动仍使用原数据库。
+
+安装 XcodeGen 后，可运行 `./Tests/run-ui-checks.sh <模拟器 UUID>`。UI 回归使用独立应用标识和内存示例账目，覆盖金额流程、返回、旋转、保存提示、四个标签页、月份导出和即时外观切换。结果保存在临时目录，不进入仓库。
 
 ## 数据兼容与验证
 

@@ -62,7 +62,7 @@ private struct PinnedCategorySummary: View {
             .paperScreen()
             .navigationTitle("关注分类")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { dismiss() } } }
+            .toolbar { ToolbarItem(placement: .confirmationAction) { Button { dismiss() } label: { Label("完成", systemImage: "checkmark") } } }
         }
     }
 }
@@ -73,7 +73,7 @@ struct PinnedCategoryPicker: View {
         NavigationStack {
             VStack { LedgerPicker(); PinnedSelection(ledger: ledger).id(ledger) }
                 .paperScreen().navigationTitle("关注分类").navigationBarTitleDisplayMode(.inline)
-                .toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { dismiss() } } }
+                .toolbar { ToolbarItem(placement: .confirmationAction) { Button { dismiss() } label: { Label("完成", systemImage: "checkmark") } } }
         }
     }
 }

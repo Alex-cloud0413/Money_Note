@@ -45,9 +45,9 @@ struct SubscriptionsView: View {
                 }.listStyle(.plain).readableWidth()
             }.paperScreen().navigationTitle("订阅").navigationBarTitleDisplayMode(.inline)
                 .toolbar {
-                    ToolbarItem(placement: .cancellationAction) { Button("完成") { dismiss() } }
+                    ToolbarItem(placement: .cancellationAction) { Button { dismiss() } label: { Label("完成", systemImage: "checkmark") } }
                     ToolbarItem(placement: .topBarTrailing) {
-                        Button { adding = true } label: { Image(systemName: "plus") }.accessibilityLabel("添加订阅")
+                        Button { adding = true } label: { Label("添加订阅", systemImage: "plus") }
                     }
                 }.sheet(isPresented: $adding) { SubscriptionEditor() }
                 .sheet(item: $editing) { SubscriptionEditor(editing: $0) }

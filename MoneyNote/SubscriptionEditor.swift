@@ -191,10 +191,10 @@ struct SubscriptionEditor: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("取消") { if didSetup && fingerprint != baseline { discard = true } else { dismiss() } }
+                    Button { if didSetup && fingerprint != baseline { discard = true } else { dismiss() } } label: { Label("取消", systemImage: "xmark") }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("保存") { save() }.disabled(!canSave)
+                    Button { save() } label: { Label("保存", systemImage: "checkmark") }.disabled(!canSave)
                 }
             }
             .confirmationDialog("删除订阅及 \(affectedCount) 笔账目？",

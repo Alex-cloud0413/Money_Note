@@ -138,12 +138,14 @@ struct TransactionEditor: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("取消", action: cancel)
+                    Button(action: cancel) { Label("取消", systemImage: "xmark") }
                         .accessibilityIdentifier("entryCancel")
                 }
                 if editing != nil && step == .details {
                     ToolbarItem(placement: .bottomBar) {
-                        Button("删除这笔账", role: .destructive) { confirmDelete = true }
+                        Button(role: .destructive) { confirmDelete = true } label: {
+                            Label("删除这笔账", systemImage: "trash")
+                        }
                     }
                 }
             }
@@ -222,13 +224,21 @@ struct TransactionEditor: View {
 
     private var amountStep: some View {
         GeometryReader { geometry in
-            if geometry.size.width > geometry.size.height {
+            if geometry.size.width >= 700 && geometry.size.height >= 300 && !typeSize.isAccessibilitySize {
                 HStack(spacing: 0) {
                     amountOverview
-                        .frame(width: max(320, geometry.size.width * 0.43))
+                        .frame(width: geometry.size.width * 0.43)
                     Divider()
                     amountKeypad
                 }
+            } else if geometry.size.height < 500 || typeSize.isAccessibilitySize {
+                ScrollView {
+                    VStack(spacing: 0) {
+                        amountOverviewContent
+                        amountKeypad.frame(height: typeSize.isAccessibilitySize ? 460 : 340)
+                    }
+                }
+                .scrollBounceBehavior(.basedOnSize)
             } else {
                 VStack(spacing: 0) {
                     amountOverview
@@ -240,8 +250,11 @@ struct TransactionEditor: View {
     }
 
     private var amountOverview: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 16) {
+        ScrollView { amountOverviewContent }
+    }
+
+    private var amountOverviewContent: some View {
+        VStack(alignment: .leading, spacing: 16) {
                 Picker("收支类型", selection: Binding(get: { type }, set: { value in
                     type = value
                     selectedParent = nil
@@ -275,7 +288,6 @@ struct TransactionEditor: View {
             }
             .padding(20)
             .readableWidth()
-        }
     }
 
     private var amountKeypad: some View {

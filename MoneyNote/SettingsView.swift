@@ -127,7 +127,7 @@ struct SettingsView: View {
                     LabeledContent("有效账目", value: "\(transactions.count) 笔")
                 }
             }.readableWidth().paperScreen().navigationTitle("设置").navigationBarTitleDisplayMode(.inline)
-                .toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { dismiss() } } }
+                .toolbar { ToolbarItem(placement: .confirmationAction) { Button { dismiss() } label: { Label("完成", systemImage: "checkmark") } } }
                 .sheet(isPresented: $showCategories) { CategoryManagerView() }
                 .sheet(isPresented: $showSubscriptions) { SubscriptionsView() }
                 .sheet(isPresented: $showPinned) { PinnedCategoryPicker() }

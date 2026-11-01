@@ -33,7 +33,7 @@ struct CategoryManagerView: View {
                 Section { Text("归档分类会保留历史账目和统计；需要时可以恢复。每次修改在编辑页保存后生效。")
                     .font(.footnote).foregroundStyle(.secondary) }
             }.paperScreen().navigationTitle("分类管理").navigationBarTitleDisplayMode(.inline)
-                .toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { dismiss() } } }
+                .toolbar { ToolbarItem(placement: .confirmationAction) { Button { dismiss() } label: { Label("完成", systemImage: "checkmark") } } }
                 .sheet(item: $editing) { CategoryEditForm(editing: $0, parent: $0.parent, type: $0.type) }
                 .sheet(isPresented: $adding) { CategoryEditForm(type: type) }
                 .sheet(item: $childParent) { CategoryEditForm(parent: $0, type: $0.type) }
@@ -87,8 +87,8 @@ struct CategoryEditForm: View {
                 }
             }.paperScreen().navigationTitle(editing == nil ? "添加分类" : "编辑分类").navigationBarTitleDisplayMode(.inline)
                 .toolbar {
-                    ToolbarItem(placement: .cancellationAction) { Button("取消") { if dirty { discard = true } else { dismiss() } } }
-                    ToolbarItem(placement: .confirmationAction) { Button("保存", action: save).disabled(validation != nil) }
+                    ToolbarItem(placement: .cancellationAction) { Button { if dirty { discard = true } else { dismiss() } } label: { Label("取消", systemImage: "xmark") } }
+                    ToolbarItem(placement: .confirmationAction) { Button(action: save) { Label("保存", systemImage: "checkmark") }.disabled(validation != nil) }
                 }
                 .onAppear {
                     guard !setupDone else { return }

@@ -25,7 +25,7 @@ struct RecentlyDeletedView: View {
                     }.listRowBackground(PaperTheme.surface)
                 }
             }.readableWidth().paperScreen().navigationTitle("最近删除").navigationBarTitleDisplayMode(.inline)
-                .toolbar { ToolbarItem(placement: .confirmationAction) { Button("完成") { dismiss() } } }
+                .toolbar { ToolbarItem(placement: .confirmationAction) { Button { dismiss() } label: { Label("完成", systemImage: "checkmark") } } }
                 .alert("未能恢复", isPresented: Binding(get: { error != nil }, set: { if !$0 { error = nil } })) {
                     Button("好") { error = nil }
                 } message: { Text(error ?? "") }

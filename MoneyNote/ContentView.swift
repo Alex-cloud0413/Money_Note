@@ -49,7 +49,7 @@ struct ContentView: View {
             }.paperScreen().navigationTitle("轻账记").navigationBarTitleDisplayMode(.inline)
                 .toolbar {
                     ToolbarItem(placement: .topBarLeading) {
-                        Button { showingSettings = true } label: { Image(systemName: "gearshape") }.accessibilityLabel("设置")
+                        Button { showingSettings = true } label: { Label("设置", systemImage: "gearshape") }
                     }
                     ToolbarItem(placement: .topBarTrailing) {
                         Button { showingAdd = true } label: { Label("记一笔", systemImage: "plus") }
