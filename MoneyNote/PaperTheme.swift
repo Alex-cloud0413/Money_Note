@@ -113,15 +113,23 @@ struct MonthPicker: View {
     @Binding var month: Date
     var body: some View {
         HStack(spacing: 4) {
-            Button { change(-1) } label: { Image(systemName: "chevron.left").font(.subheadline).frame(width: 44, height: 44) }
+            Button { change(-1) } label: {
+                Image(systemName: "chevron.left").font(.subheadline)
+                    .frame(width: 44, height: 44).contentShape(Rectangle())
+            }
                 .accessibilityLabel("上个月")
             Spacer()
             Text(month.formatted(.dateTime.year().month(.wide).locale(Locale(identifier: "zh_CN"))))
                 .font(.headline).monospacedDigit()
             Spacer()
-            Button { change(1) } label: { Image(systemName: "chevron.right").font(.subheadline).frame(width: 44, height: 44) }
+            Button { change(1) } label: {
+                Image(systemName: "chevron.right").font(.subheadline)
+                    .frame(width: 44, height: 44).contentShape(Rectangle())
+            }
                 .accessibilityLabel("下个月")
         }
+        // Form rows must keep the two arrow actions independent.
+        .buttonStyle(.plain)
     }
     private func change(_ value: Int) {
         month = Calendar.current.date(byAdding: .month, value: value, to: month) ?? month

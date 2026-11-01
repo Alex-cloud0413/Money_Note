@@ -2,11 +2,17 @@
 
 用简约的纸质界面，分别记好生活和事业。原生 iPhone / iPad 记账应用，使用 SwiftUI、SwiftData 和 CloudKit。
 
-当前开发版本：**1.4（构建 10）**。本仓库保存源码和开发历史，App Store 发布状态独立于代码提交。
+当前开发版本：**1.4.2（构建 12）**。本仓库保存源码和开发历史，App Store 发布状态独立于代码提交。
 
 ## 本次更新
 
-1.4 聚焦明细阅读、账单导出与更克制的白纸视觉。
+1.4.2 修复两处设置交互：
+
+- 导出账单时，月份按钮可独立响应，支持连续前后切换，并保留完整的 44×44 点点击区域。
+- 切换浅色、深色或跟随系统后，已打开的设置页面立即更新，无需退出重进。
+- Release 构建明确使用正式 CloudKit 环境，与 App Store 版本连接同一套 iCloud 数据。
+
+## 1.4 的主要功能
 
 - 明细页移除冗余计划账目提示、分隔线和当月结余，突出支出、收入与流水。
 - 新增「今日支出」，当天账目可以直接查看和编辑。
@@ -19,7 +25,7 @@
 
 ## 开发
 
-使用 Xcode 打开 `MoneyNote.xcodeproj`，运行 `MoneyNote` scheme。最低 iOS 17，当前验证环境为 Xcode 26.6 / iOS 26.5 Simulator；构建 4 已在 iPhone 17 / iOS 27.0 测试版上完成覆盖升级、启动及旧数据保留核验。
+使用 Xcode 打开 `MoneyNote.xcodeproj`，运行 `MoneyNote` scheme。最低 iOS 17，1.4.2 验证环境为 Xcode 27.2 / iOS 26.5 Simulator，并已在 iPhone 17 上完成覆盖升级、启动、旧数据保留与正式 CloudKit 同步核验。
 
 ```sh
 xcodebuild -project MoneyNote.xcodeproj -scheme MoneyNote \
@@ -28,6 +34,8 @@ xcodebuild -project MoneyNote.xcodeproj -scheme MoneyNote \
 ```
 
 真机运行需要开发者自己的签名配置和相应的 CloudKit 容器权限。仓库不包含签名私钥、描述文件、真实账目或本机 Xcode 用户状态。
+
+`Release` 使用 `MoneyNote.Release.entitlements`，将 CloudKit 环境明确设为 `Production`；直接安装真机时也应核验最终签名的环境，避免与商店版使用不同的数据环境。App Store 导出由 Xcode 按分发签名重签名。
 
 Debug 运行参数 `--preview-data` 启用隔离的内存示例数据，不打开用户的持久化数据库或连接 CloudKit。普通启动仍使用原数据库。
 
@@ -43,12 +51,14 @@ Debug 运行参数 `--preview-data` 启用隔离的内存示例数据，不打�
 
 旧账目的 `bookID` 为空时仍解释为生活账本。旧账户模型仅作为不可见的迁移兼容结构保留，防止已有本地数据库或 CloudKit 记录因直接删字段而无法打开；新版本不再创建、展示或写入账户信息。旧版固定预算在升级时只归入升级当月，之后每个月独立设置。
 
-本地数据迁移及真机旧数据升级核验持续覆盖；CloudKit 生产验证仍待完成。详见 [1.4 验证记录](Docs/verification-1.4.md)、[1.3 历史记录](Docs/verification-1.3.md)、[1.2 历史记录](Docs/verification-1.2.md)及 [1.1 历史记录](Docs/verification-1.1.md)。
+本地数据迁移及真机旧数据升级核验持续覆盖；1.4.2 已核验正式 CloudKit 导入与导出成功。详见 [1.4.2 验证记录](Docs/verification-1.4.2.md)、[1.4 历史记录](Docs/verification-1.4.md)、[1.3 历史记录](Docs/verification-1.3.md)、[1.2 历史记录](Docs/verification-1.2.md)及 [1.1 历史记录](Docs/verification-1.1.md)。
 
 ## 历史
 
 - `a022417`：完整保留本地 1.0（构建 2）源码。
 - `77c3f6a`：与原 GitHub 仓库历史合并，保留原隐私政策网页 `index.html`。
+- 1.4.2：修复导出月份按钮、设置页实时外观切换，并明确 Release 的正式 iCloud 环境。
+- 1.4.1：更新 App Store 截图。
 - 1.4：明细页与 CSV 导出增强、纯白纸纹视觉和新版图标。
 - 1.3：移除账户产品概念、三步弹窗记账、每月独立预算。
 - 1.2：设计审核 D01–D18 修复、数据保护与跨尺寸适配。

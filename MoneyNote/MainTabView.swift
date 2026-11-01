@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 struct MainTabView: View {
     @EnvironmentObject private var session: AppSession
@@ -13,6 +14,38 @@ struct MainTabView: View {
         .overlay(alignment: .bottom) { SessionNotice().padding(.bottom, 68) }
         .environment(\.locale, Locale(identifier: "zh_CN"))
         .tint(PaperTheme.accent)
-        .preferredColorScheme(AppearanceMode(rawValue: appearanceRaw)?.colorScheme)
+        .background {
+            WindowAppearance(colorScheme: AppearanceMode(rawValue: appearanceRaw)?.colorScheme)
+                .frame(width: 0, height: 0)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+        }
+    }
+}
+
+/// Window traits update open sheets immediately and let system appearance resume cleanly.
+private struct WindowAppearance: UIViewRepresentable {
+    let colorScheme: ColorScheme?
+
+    func makeUIView(context: Context) -> AppearanceView { AppearanceView() }
+
+    func updateUIView(_ uiView: AppearanceView, context: Context) {
+        uiView.appearance = colorScheme.map { $0 == .dark ? .dark : .light } ?? .unspecified
+    }
+
+    final class AppearanceView: UIView {
+        var appearance: UIUserInterfaceStyle = .unspecified {
+            didSet { applyAppearance() }
+        }
+
+        override func didMoveToWindow() {
+            super.didMoveToWindow()
+            applyAppearance()
+        }
+
+        private func applyAppearance() {
+            guard let window, window.overrideUserInterfaceStyle != appearance else { return }
+            window.overrideUserInterfaceStyle = appearance
+        }
     }
 }
