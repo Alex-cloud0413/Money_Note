@@ -59,6 +59,7 @@ enum PaperTheme {
 
 /// A quiet paper texture; omitted for increased contrast and never animated.
 struct PaperBackground: View {
+    var textureStrength = 1.0
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.colorSchemeContrast) private var contrast
     var body: some View {
@@ -72,7 +73,7 @@ struct PaperBackground: View {
                         .saturation(colorScheme == .dark ? 1 : 0)
                         .contrast(colorScheme == .dark ? 1 : 1.12)
                         .blendMode(colorScheme == .dark ? .softLight : .multiply)
-                        .opacity(colorScheme == .dark ? 0.10 : 0.46)
+                        .opacity((colorScheme == .dark ? 0.10 : 0.46) * textureStrength)
                 }
             }
         }
@@ -100,9 +101,9 @@ struct CategoryGlyph: View {
 }
 
 extension View {
-    func paperScreen() -> some View {
+    func paperScreen(textureStrength: Double = 1) -> some View {
         self.scrollContentBackground(.hidden)
-            .background { PaperBackground() }
+            .background { PaperBackground(textureStrength: textureStrength) }
             .listRowBackground(PaperTheme.surface)
             .foregroundStyle(PaperTheme.ink)
             .tint(PaperTheme.accent)

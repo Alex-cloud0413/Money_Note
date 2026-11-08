@@ -16,7 +16,7 @@ struct SubscriptionsView: View {
                     if subscriptions.isEmpty {
                         ContentUnavailableView {
                             Label("这个账本还没有订阅", systemImage: "arrow.triangle.2.circlepath")
-                        } description: { Text("把会员、云存储等费用加进来，按月了解成本。") } actions: {
+                        } description: { Text("把会员、云存储等费用加进来，按月或按天了解成本。") } actions: {
                             Button("添加订阅") { adding = true }.buttonStyle(PrimaryButtonStyle())
                         }.listRowBackground(Color.clear)
                     } else {
@@ -62,14 +62,14 @@ struct SubscriptionRow: View {
                 CategoryGlyph(name: sub.categoryName, icon: sub.categoryIcon)
                 VStack(alignment: .leading, spacing: 5) {
                     Text(sub.name).font(.body)
-                    Text(sub.cycle.rawValue + " · " + sub.amount.asCurrency + (sub.isActive ? "" : " · 已停止"))
+                    Text(sub.cycle.rawValue + " · " + (sub.foreignAmount.map { $0.quote.currency.display($0.original) } ?? sub.amount.asCurrency) + (sub.isActive ? "" : " · 已停止"))
                         .font(.caption).foregroundStyle(.secondary)
                 }
             }
             AdaptiveSpacer()
             VStack(alignment: .leading, spacing: 4) {
-                MoneyText(value: sub.monthlyAmortized, style: .headline)
-                Text("每月平摊约").font(.caption).foregroundStyle(.secondary)
+                MoneyText(value: sub.amortized, style: .headline)
+                Text(sub.allocation.averageLabel).font(.caption).foregroundStyle(.secondary)
             }
         }.padding(.vertical, 8).accessibilityElement(children: .combine)
     }

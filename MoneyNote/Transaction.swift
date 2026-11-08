@@ -48,6 +48,17 @@ final class TxRecord {
     /// Legacy migration field. New versions neither display nor write account data.
     var account: AccountModel?
 
+    var allocationRaw: String? = nil
+    var foreignAmountRaw: String? = nil
+    var allocation: AllocationUnit {
+        get { allocationRaw.flatMap(AllocationUnit.init(rawValue:)) ?? .month }
+        set { allocationRaw = newValue == .day ? newValue.rawValue : nil }
+    }
+    var foreignAmount: ForeignAmount? {
+        get { ForeignAmount(payload: foreignAmountRaw) }
+        set { foreignAmountRaw = newValue?.payload }
+    }
+
     // —— 分期相关 ——
     /// 同一组分期共用一个 ID；非分期为 nil
     var installmentGroupID: UUID? = nil

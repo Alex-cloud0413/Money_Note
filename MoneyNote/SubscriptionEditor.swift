@@ -15,7 +15,7 @@ struct SubscriptionEditor: View {
     @State private var discard = false
     @State private var showStopConfirm = false
     private var fingerprint: String {
-        [name, cycle.rawValue, String(amount ?? -1), String(hasPromo), String(firstAmount ?? -1),
+        [name, cycle.rawValue, allocation.rawValue, currency.rawValue, String(amount ?? -1), String(hasPromo), String(firstAmount ?? -1),
          String(startDate.timeIntervalSince1970), selectedParent?.uid ?? "", selectedChild?.uid ?? "",
          ledgerKey, note, String(isActive)].joined(separator: "|")
     }
@@ -23,11 +23,20 @@ struct SubscriptionEditor: View {
     private var affectedCount: Int { records.filter { $0.subscriptionUID == editing?.uid }.count }
     private var validation: String? {
         if name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { return "请填写订阅名称。" }
-        guard let amount, amount.isFinite, amount >= 0.01, amount < 1_000_000_000 else { return "请填写有效的每期金额，至少 0.01 元。" }
+        guard let amount, amount.isFinite, amount < 1_000_000_000,
+              currency.rounded(amount) >= 1 / currency.scale else { return "请填写有效的每期金额。" }
         if hasPromo {
             guard let firstAmount, firstAmount.isFinite, firstAmount >= 0, firstAmount < 1_000_000_000 else { return "首期优惠金额需为有效金额，可以为 0。" }
         }
         if selectedParent == nil && !keepsLegacyCategory { return "请选择分类。" }
+        guard let converted = converted(amount) else { return "取得汇率后即可保存。" }
+        if !converted.isFinite || converted < 0.01 || converted >= 1_000_000_000 {
+            return "每期折合人民币需在 ¥0.01 至 10 亿元之间。"
+        }
+        if let firstAmount, hasPromo, let first = self.converted(firstAmount),
+           !first.isFinite || first >= 1_000_000_000 {
+            return "首期折合人民币需小于 10 亿元。"
+        }
         return nil
     }
     @State private var saveError: String?
@@ -43,6 +52,9 @@ struct SubscriptionEditor: View {
 
     @State private var name = ""
     @State private var cycle: BillingCycle = .monthly
+    @State private var allocation: AllocationUnit = .month
+    @State private var currency: EntryCurrency = .CNY
+    @StateObject private var fx = FXLookup()
     @State private var amount: Double? = nil
     @State private var hasPromo = false
     @State private var firstAmount: Double? = nil
@@ -62,10 +74,16 @@ struct SubscriptionEditor: View {
             .sorted { $0.sortOrder < $1.sortOrder }
     }
 
-    /// 实时每月平摊预览
+    private var quote: FXQuote? { fx.matching(currency, date: startDate) }
+
+    private func converted(_ value: Double) -> Double? {
+        currency == .CNY ? currency.rounded(value) : quote?.converted(value)
+    }
+
     private var amortizedPreview: Double? {
-        guard let a = amount, a > 0 else { return nil }
-        return ((a / Double(cycle.months)) * 100).rounded() / 100
+        let count = allocation.count(start: startDate, months: cycle.months)
+        guard let amount, amount.isFinite, amount > 0, let converted = converted(amount), count > 0 else { return nil }
+        return converted / Double(count)
     }
 
     private var canSave: Bool { validation == nil }
@@ -82,6 +100,10 @@ struct SubscriptionEditor: View {
                         ForEach(BillingCycle.allCases, id: \.self) { Text($0.rawValue).tag($0) }
                     }
                     .pickerStyle(.segmented)
+                    CurrencyPicker(currency: $currency)
+                    Picker("平摊方式", selection: $allocation) {
+                        ForEach(AllocationUnit.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+                    }.pickerStyle(.segmented)
 
                     HStack {
                         Text("每期扣款")
@@ -104,9 +126,15 @@ struct SubscriptionEditor: View {
                         }
                     }
 
+                    if currency != .CNY {
+                        FXQuoteRow(quote: quote, amount: amount, failed: fx.failed, retry: fx.retry)
+                        Text("订阅使用保存时确认的汇率计算各期平摊。")
+                            .font(.footnote).foregroundStyle(.secondary)
+                    }
+
                     if let p = amortizedPreview {
                         HStack {
-                            Text("每月平摊约").foregroundStyle(.secondary)
+                            Text(allocation.averageLabel).foregroundStyle(.secondary)
                             Spacer()
                             Text(p.asCurrency).foregroundStyle(Color.accentColor)
                         }
@@ -173,7 +201,7 @@ struct SubscriptionEditor: View {
 
                 Section {
                     InlineValidation(message: validation)
-                    Text(isEditing ? "保存订阅修改会更新它已生成的平摊账目。" : "订阅金额会按月平摊，计入所选账本的统计与预算。")
+                    Text(isEditing ? "保存订阅修改会更新它已生成的平摊账目。" : "订阅按所选方式平摊，计入所选账本的统计与预算。")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
                 if isEditing {
@@ -204,8 +232,11 @@ struct SubscriptionEditor: View {
             .protectDraft(didSetup && fingerprint != baseline, confirming: $discard) { dismiss() }
             .confirmationDialog(isActive ? "停止生成新的订阅账目？" : "恢复订阅？", isPresented: $showStopConfirm, titleVisibility: .visible) {
                 Button(isActive ? "停止并保留历史" : "恢复订阅") { isActive.toggle(); save() }
-            } message: { Text(isActive ? "历史账目会保留，已生成的未来月份计划会移除。其他账目不受影响。" : "会按当前订阅设置补齐每月平摊账目。") }
+            } message: { Text(isActive ? "历史账目会保留，已生成的未来平摊计划会移除。" : "会按当前订阅设置补齐平摊账目。") }
             .onAppear(perform: setup)
+            .task(id: fx.id(currency: currency, date: startDate)) {
+                await fx.load(currency: currency, date: startDate)
+            }
             .alert("未能保存", isPresented: Binding(get: { saveError != nil }, set: { if !$0 { saveError = nil } })) {
                 Button("好") { saveError = nil }
             } message: { Text(saveError ?? "") }
@@ -220,10 +251,14 @@ struct SubscriptionEditor: View {
         if let s = editing {
             name = s.name
             cycle = s.cycle
-            amount = s.amount
+            let foreign = s.foreignAmount
+            currency = foreign?.quote.currency ?? .CNY
+            amount = foreign?.original ?? s.amount
             hasPromo = s.hasFirstPromo
-            firstAmount = s.firstAmount
+            firstAmount = s.foreignFirstAmount ?? s.firstAmount
             startDate = s.startDate
+            allocation = s.allocation
+            fx.use(foreign?.quote, currency: currency, date: startDate)
             selectedParent = allCategories.first { $0.parent == nil && $0.type == .expense && $0.matches(s.categoryName) }
             selectedChild = selectedParent?.sortedChildren.first { $0.matches(s.subcategoryName) }
             if selectedChild == nil { legacyChild = s.subcategoryName }
@@ -240,14 +275,18 @@ struct SubscriptionEditor: View {
     // MARK: - 保存 / 删除
 
     private func save() {
-        guard canSave, let amt = amount else { return }
+        guard canSave, let original = amount, let amt = converted(original) else { return }
+        let originalFirst = hasPromo ? (firstAmount ?? original) : original
+        guard let firstAmt = converted(originalFirst) else { return }
+        let foreign = quote.map { ForeignAmount(original: currency.rounded(original), quote: $0) }
         let parentName = selectedParent?.name ?? editing?.categoryName ?? ""
         let parentIcon = selectedParent?.icon ?? editing?.categoryIcon ?? ""
         let childName = selectedChild?.name ?? legacyChild
-        let firstAmt = hasPromo ? (firstAmount ?? amt) : amt
         let trimmedName = name.trimmingCharacters(in: .whitespaces)
 
+        let sub: SubscriptionModel
         if let s = editing {
+            sub = s
             s.name = trimmedName
             s.cycle = cycle
             s.amount = amt
@@ -260,7 +299,7 @@ struct SubscriptionEditor: View {
             s.note = note
             s.isActive = isActive
         } else {
-            let sub = SubscriptionModel(name: trimmedName,
+            sub = SubscriptionModel(name: trimmedName,
                                         cycle: cycle,
                                         amount: amt,
                                         firstAmount: firstAmt,
@@ -273,8 +312,13 @@ struct SubscriptionEditor: View {
             modelContext.insert(sub)
         }
 
+        sub.allocation = allocation
+        sub.foreignAmount = foreign
+        sub.foreignFirstAmount = foreign != nil && hasPromo ? currency.rounded(originalFirst) : nil
+
         do {
-            try SubscriptionEngine.sync(modelContext, saving: false, rewriteAmounts: true)
+            try SubscriptionEngine.sync(modelContext, upTo: session.month, saving: false,
+                                        rewriteAmounts: true, only: sub.uid)
             try modelContext.save()
             session.saved(isActive ? "订阅已保存" : "订阅已停止，历史账目已保留")
             dismiss()

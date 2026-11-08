@@ -54,14 +54,15 @@ struct SettingsView: View {
     @Query(sort: \TxRecord.date, order: .reverse) private var all: [TxRecord]
     private var transactions: [TxRecord] { all.filter { !$0.isTrashed } }
     private var ledgerChoices: [LedgerChoice] { LedgerChoice.choices(ledgers) }
-    private var exportTransactions: [TxRecord] {
-        LedgerAnalytics.records(transactions, ledger: exportLedger, month: exportMonth, type: exportType.transactionType)
+    private var exportRange: Range<Date>? {
+        CSVExport.days(from: exportStart, through: exportEnd)
     }
     @State private var csvURL: URL?
     @State private var exportDate: Date?
     @State private var exportError: String?
     @State private var exporting = false
-    @State private var exportMonth = Date.now
+    @State private var exportStart = Date.now
+    @State private var exportEnd = Date.now
     @State private var exportLedger = LedgerChoice.legacyKey
     @State private var exportType = ExportTypeFilter.all
     @State private var initializedExport = false
@@ -95,10 +96,12 @@ struct SettingsView: View {
                         .font(.footnote).foregroundStyle(.secondary)
                 }
                 Section {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("月份").font(.caption).foregroundStyle(.secondary)
-                        MonthPicker(month: $exportMonth)
-                    }
+                    DatePicker("起始日期", selection: $exportStart, displayedComponents: .date)
+                        .datePickerStyle(.compact)
+                        .accessibilityIdentifier("exportStartDate")
+                    DatePicker("结束日期", selection: $exportEnd, displayedComponents: .date)
+                        .datePickerStyle(.compact)
+                        .accessibilityIdentifier("exportEndDate")
                     Picker("账本", selection: $exportLedger) {
                         ForEach(ledgerChoices) { Text($0.name).tag($0.id) }
                     }
@@ -111,15 +114,14 @@ struct SettingsView: View {
                         .labelsHidden()
                     }
                     Button(exporting ? "正在准备…" : "准备筛选账单 CSV", action: export)
-                        .disabled(exporting || exportTransactions.isEmpty)
+                        .disabled(exporting || exportRange == nil)
                     if let url = csvURL {
                         ShareLink(item: url) { Label("分享已准备的账单", systemImage: "square.and.arrow.up") }
                         if let exportDate { Text("生成于 \(exportDate.formatted(date: .abbreviated, time: .shortened))").font(.caption).foregroundStyle(.secondary) }
                     }
-                    if exportTransactions.isEmpty { Text("当前筛选条件下暂无账目").foregroundStyle(.secondary) }
-                    InlineValidation(message: exportError)
+                    InlineValidation(message: exportRange == nil ? "结束日期不能早于起始日期。" : exportError)
                 } header: { Text("导出") } footer: {
-                    Text("仅导出所选月份、账本和类型的有效账目，不包含最近删除。修改筛选条件后需重新准备文件。")
+                    Text("起始和结束日期均计入。可按账本和收支类型筛选有效账目。")
                 }
                 Section("关于") {
                     LabeledContent("名称", value: "轻账记")
@@ -134,11 +136,16 @@ struct SettingsView: View {
                 .sheet(isPresented: $showTrash) { RecentlyDeletedView() }
                 .onAppear {
                     guard !initializedExport else { return }
-                    exportMonth = session.month
+                    let calendar = Calendar.current
+                    if let month = calendar.dateInterval(of: .month, for: session.month) {
+                        exportStart = month.start
+                        exportEnd = calendar.date(byAdding: .day, value: -1, to: month.end) ?? session.month
+                    }
                     exportLedger = currentLedger
                     initializedExport = true
                 }
-                .onChange(of: exportMonth) { _, _ in invalidateExport() }
+                .onChange(of: exportStart) { _, _ in invalidateExport() }
+                .onChange(of: exportEnd) { _, _ in invalidateExport() }
                 .onChange(of: exportLedger) { _, _ in invalidateExport() }
                 .onChange(of: exportType) { _, _ in invalidateExport() }
         }
@@ -148,26 +155,54 @@ struct SettingsView: View {
         return "\(info["CFBundleShortVersionString"] as? String ?? "1.3")（\(info["CFBundleVersion"] as? String ?? "8")）"
     }
     private func export() {
-        exporting = true; exportError = nil; csvURL = nil
-        let date = Date.now
-        let df = DateFormatter(); df.dateFormat = "yyyy-MM-dd HH:mm"
-        let choices = ledgerChoices
-        var rows = ["日期,类型,金额,大类,子类,账本,备注,分期,状态"]
-        for record in exportTransactions {
-            let fields = [df.string(from: record.date), record.type.rawValue, String(format: "%.2f", record.amount),
-                          record.categoryName, record.subcategoryName,
-                          choices.first { $0.id == record.ledgerKey }?.name ?? record.ledgerKey,
-                          record.note, record.isInstallment ? "\(record.installmentIndex)/\(record.installmentCount)" : "",
-                          record.date > date ? "计划" : "已记入"]
-            rows.append(fields.map(CSVExport.escape).joined(separator: ","))
-        }
-        let csv = "\u{FEFF}" + rows.joined(separator: "\n")
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent("轻账记-账单-\(UUID().uuidString.prefix(8)).csv")
+        guard let exportRange else { return }
+        exporting = true
+        defer { exporting = false }
+        exportError = nil
+        csvURL = nil
+        exportDate = nil
+
         do {
+            let filtered = all.filter {
+                !$0.isTrashed && $0.ledgerKey == exportLedger && exportRange.contains($0.date)
+                && (exportType.transactionType == nil || $0.type == exportType.transactionType)
+            }
+            guard !filtered.isEmpty else {
+                exportError = "当前筛选条件下暂无账目。"
+                return
+            }
+            let date = Date.now
+            let df = DateFormatter()
+            df.locale = Locale(identifier: "en_US_POSIX")
+            df.calendar = Calendar(identifier: .gregorian)
+            df.dateFormat = "yyyy-MM-dd HH:mm"
+            let choices = ledgerChoices
+            var rows = ["日期,类型,金额,大类,子类,账本,备注,分期,状态,平摊方式,原币,原币金额,人民币汇率,汇率时间"]
+            for record in filtered {
+                let foreign = record.foreignAmount
+                let allocation = record.isInstallment || record.isSubscription ? record.allocation.rawValue : ""
+                let baseFields: [String] = [
+                    df.string(from: record.date), record.type.rawValue, String(format: "%.2f", record.amount),
+                    record.categoryName, record.subcategoryName,
+                    choices.first { $0.id == record.ledgerKey }?.name ?? record.ledgerKey,
+                    record.note, record.isInstallment ? "\(record.installmentIndex)/\(record.installmentCount)" : "",
+                    record.date > date ? "计划" : "已记入", allocation
+                ]
+                let currencyFields = foreign.map {
+                    [$0.quote.currency.rawValue, String($0.original), String($0.quote.rate), df.string(from: $0.quote.timestamp)]
+                } ?? ["", "", "", ""]
+                rows.append((baseFields + currencyFields).map(CSVExport.escape).joined(separator: ","))
+            }
+            let csv = "\u{FEFF}" + rows.joined(separator: "\n")
+            df.dateFormat = "yyyy-MM-dd"
+            let filename = "轻账记-\(df.string(from: exportStart))-至-\(df.string(from: exportEnd))-\(UUID().uuidString.prefix(8)).csv"
+            let url = FileManager.default.temporaryDirectory.appendingPathComponent(filename)
             try Data(csv.utf8).write(to: url, options: .atomic)
-            csvURL = url; exportDate = date
-        } catch { exportError = "导出失败，请检查设备剩余空间后重试。" }
-        exporting = false
+            csvURL = url
+            exportDate = date
+        } catch {
+            exportError = "未能准备账单，请稍后重试。"
+        }
     }
     private func invalidateExport() {
         guard initializedExport else { return }

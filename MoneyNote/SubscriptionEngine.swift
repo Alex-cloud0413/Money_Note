@@ -1,15 +1,3 @@
-//
-//  SubscriptionEngine.swift
-//  MoneyNote
-//
-//  把每个订阅按月「平摊」并自动生成真实流水：
-//  年付/季付按周期月数平摊，每个月生成一笔支出，自动计入月度汇总、统计、预算。
-//  首期金额（优惠价）只在首个周期的那几个月里平摊。
-//
-//  生成的流水带 subscriptionUID 标记，可识别、可统一更新/删除；
-//  每个「订阅 × 月份」只保留一笔（按 subscriptionMonthKey 去重）。
-//
-
 import Foundation
 import SwiftData
 
@@ -38,84 +26,135 @@ enum SubscriptionEngine {
         return cal.date(from: comps) ?? month
     }
 
-    /// 同步所有订阅：补齐/更新从开通月到当前月的每月平摊流水，并清理重复。
-    /// 在 App 启动、iCloud 远程变更、以及新增/编辑订阅后调用。
-    /// viewMonth：用户正在查看的月份；翻到未来月份时会把订阅平摊记录补到该月。
-    static func sync(_ context: ModelContext, upTo viewMonth: Date = .now, saving: Bool = true, rewriteAmounts: Bool = false) throws {
+    private static func dayKey(_ date: Date, calendar: Calendar) -> String {
+        monthKey(date) + String(format: "-%02d", calendar.component(.day, from: date))
+    }
+
+    private struct Entry {
+        var key: String
+        var date: Date
+        var amount: Double
+        var foreignAmount: ForeignAmount?
+    }
+
+    private static func schedule(_ sub: SubscriptionModel, through endMonth: Date,
+                                 calendar: Calendar) -> [Entry] {
+        let firstDay = calendar.startOfDay(for: sub.startDate)
+        let start = sub.allocation == .day ? firstDay : startOfMonth(firstDay)
+        guard let end = calendar.date(byAdding: .month, value: 1, to: endMonth) else { return [] }
+        let cycle = sub.cycle.months
+        let foreign = sub.foreignAmount
+        var monthOffset = 0
+        var lastMonthKey: String?
+        var entries: [Entry] = []
+
+        while let cycleStart = calendar.date(byAdding: .month, value: monthOffset, to: start),
+              cycleStart < end,
+              let nextCycle = calendar.date(byAdding: .month, value: monthOffset + cycle, to: start) {
+            // Anchor every renewal to the original billing day, including starts on the 29th–31st.
+            let count = sub.allocation == .day
+                ? (calendar.dateComponents([.day], from: cycleStart, to: nextCycle).day ?? 0)
+                : cycle
+            let firstCycle = monthOffset == 0
+            let total = firstCycle ? sub.firstAmount : sub.amount
+            let original = firstCycle ? sub.foreignFirstAmount ?? foreign?.original : foreign?.original
+            for index in 0..<count {
+                guard let date = sub.allocation.date(at: index, start: cycleStart, calendar: calendar),
+                      date < end else { break }
+                let month = monthKey(date)
+                // Keep one legacy month key in every occupied month so older readers do not add a second charge.
+                let key = sub.allocation == .day && month == lastMonthKey ? dayKey(date, calendar: calendar) : month
+                lastMonthKey = month
+                let entryDate = sub.allocation == .day ? date : dateInMonth(date, dayFrom: sub.startDate)
+                let value = AllocationUnit.share(total: total, count: count, index: index)
+                let originalShare = foreign.flatMap { foreign in
+                    original.map { amount in
+                        ForeignAmount(original: AllocationUnit.share(total: amount, count: count, index: index,
+                                                                      scale: foreign.quote.currency.scale),
+                                      quote: foreign.quote)
+                    }
+                }
+                entries.append(Entry(key: key, date: entryDate, amount: value, foreignAmount: originalShare))
+            }
+            monthOffset += cycle
+        }
+        return entries
+    }
+
+    /// Sync through the selected month. Existing monthly charges keep their amounts unless explicitly edited.
+    static func sync(_ context: ModelContext, upTo viewMonth: Date = .now, saving: Bool = true,
+                     rewriteAmounts: Bool = false, only subscriptionID: String? = nil) throws {
         let subs = try context.fetch(FetchDescriptor<SubscriptionModel>())
+            .filter { subscriptionID == nil || $0.uid == subscriptionID }
         guard !subs.isEmpty else { return }
 
-        // 一次取出所有「订阅生成」的流水，按 uid 分组
         let allRecords = try context.fetch(FetchDescriptor<TxRecord>())
-        var recordsByUID: [String: [TxRecord]] = [:]
-        for r in allRecords where !r.subscriptionUID.isEmpty {
-            recordsByUID[r.subscriptionUID, default: []].append(r)
-        }
-
-        let cal = Calendar.current
+        let recordsByUID = Dictionary(grouping: allRecords.filter { !$0.subscriptionUID.isEmpty }, by: \.subscriptionUID)
+        let calendar = Calendar.current
         let currentMonth = startOfMonth(.now)
-        // 生成到「当前月」与「正在查看的月份」中较晚的那个：翻到未来月份时按需补上
         let endMonth = max(currentMonth, startOfMonth(viewMonth))
         let currentKey = monthKey(currentMonth)
+        let today = calendar.startOfDay(for: .now)
         var changed = false
 
         for sub in subs {
-            // 该订阅已生成流水，按月份键分组
-            var existing: [String: [TxRecord]] = [:]
-            for r in recordsByUID[sub.uid] ?? [] {
-                existing[r.subscriptionMonthKey, default: []].append(r)
-            }
-
-            // 已取消的订阅：保留历史，但清掉「未来月份」（晚于当前月）已生成的平摊记录，不再生成新的
+            let records = recordsByUID[sub.uid] ?? []
             guard sub.isActive else {
-                for (key, recs) in existing where key > currentKey {
-                    for r in recs { context.delete(r); changed = true }
+                for record in records where record.allocation == .day
+                    ? calendar.startOfDay(for: record.date) > today
+                    : record.subscriptionMonthKey > currentKey {
+                    context.delete(record)
+                    changed = true
                 }
                 continue
             }
 
-            let startMonth = startOfMonth(sub.startDate)
-            guard startMonth <= endMonth else { continue }   // 开通日在查看范围之后，暂不生成
-
-            let cycleMonths = max(1, sub.cycle.months)
-
-            var month = startMonth
-            while month <= endMonth {
-                let key = monthKey(month)
-                let monthsSinceStart = cal.dateComponents([.month], from: startMonth, to: month).month ?? 0
-                let periodIndex = monthsSinceStart / cycleMonths
-                let periodAmount = (periodIndex == 0) ? sub.firstAmount : sub.amount
-                guard periodAmount.isFinite, periodAmount >= 0, periodAmount < 1_000_000_000 else { break }
-                let cents = Int((periodAmount * 100).rounded())
-                let offset = monthsSinceStart % cycleMonths
-                let amt = Double(cents / cycleMonths + (offset < cents % cycleMonths ? 1 : 0)) / 100
-
-                if let recs = existing[key], let keep = recs.first {
-                    // 已有：仅当值真的变了才赋值（保持幂等，避免反复变脏触发多余保存/同步抖动）
-                    if keep.ledgerKey != sub.ledgerKey { keep.ledgerKey = sub.ledgerKey; changed = true }
-                    if rewriteAmounts && keep.amount != amt { keep.amount = amt; changed = true }
-                    if keep.categoryName != sub.categoryName { keep.categoryName = sub.categoryName; changed = true }
-                    if keep.categoryIcon != sub.categoryIcon { keep.categoryIcon = sub.categoryIcon; changed = true }
-                    if keep.subcategoryName != sub.subcategoryName { keep.subcategoryName = sub.subcategoryName; changed = true }
-                    if keep.note != sub.name { keep.note = sub.name; changed = true }
-                    for dup in recs.dropFirst() { context.delete(dup); changed = true }
-                } else {
-                    // 缺失：补一笔
-                    let rec = TxRecord(amount: amt, type: .expense,
-                                       categoryName: sub.categoryName,
-                                       categoryIcon: sub.categoryIcon,
-                                       subcategoryName: sub.subcategoryName,
-                                       note: sub.name,
-                                       date: dateInMonth(month, dayFrom: sub.startDate))
-                    rec.ledgerKey = sub.ledgerKey
-                    rec.subscriptionUID = sub.uid
-                    rec.subscriptionMonthKey = key
-                    context.insert(rec)
+            let future = records.filter { $0.date > endMonth }.map { startOfMonth($0.date) }.max() ?? endMonth
+            let scheduleEnd = rewriteAmounts ? max(endMonth, future) : endMonth
+            var existing = Dictionary(grouping: records, by: \.subscriptionMonthKey)
+            for entry in schedule(sub, through: scheduleEnd, calendar: calendar) {
+                let matches = existing.removeValue(forKey: entry.key) ?? []
+                let keep = matches.min {
+                    if $0.isTrashed != $1.isTrashed { return $0.isTrashed }
+                    return $0.createdAt < $1.createdAt
+                }
+                let record = keep ?? TxRecord(amount: entry.amount, type: .expense,
+                                               categoryName: sub.categoryName, categoryIcon: sub.categoryIcon,
+                                               subcategoryName: sub.subcategoryName, note: sub.name,
+                                               date: entry.date)
+                if keep == nil {
+                    record.subscriptionUID = sub.uid
+                    record.subscriptionMonthKey = entry.key
+                    context.insert(record)
                     changed = true
                 }
+                let recalculate = rewriteAmounts || sub.allocation == .day
+                if recalculate && record.amount != entry.amount { record.amount = entry.amount; changed = true }
+                if recalculate && record.date != entry.date { record.date = entry.date; changed = true }
+                if recalculate && record.allocation != sub.allocation {
+                    record.allocation = sub.allocation
+                    changed = true
+                }
+                if (recalculate || keep == nil), record.foreignAmount != entry.foreignAmount {
+                    record.foreignAmount = entry.foreignAmount
+                    changed = true
+                }
+                if record.ledgerKey != sub.ledgerKey { record.ledgerKey = sub.ledgerKey; changed = true }
+                if record.categoryName != sub.categoryName { record.categoryName = sub.categoryName; changed = true }
+                if record.categoryIcon != sub.categoryIcon { record.categoryIcon = sub.categoryIcon; changed = true }
+                if record.subcategoryName != sub.subcategoryName { record.subcategoryName = sub.subcategoryName; changed = true }
+                if record.note != sub.name { record.note = sub.name; changed = true }
+                for duplicate in matches where duplicate !== record {
+                    context.delete(duplicate)
+                    changed = true
+                }
+            }
 
-                guard let next = cal.date(byAdding: .month, value: 1, to: month) else { break }
-                month = next
+            if rewriteAmounts {
+                for remaining in existing.values.flatMap({ $0 }) {
+                    context.delete(remaining)
+                    changed = true
+                }
             }
         }
 

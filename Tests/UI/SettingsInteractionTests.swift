@@ -70,31 +70,26 @@ final class SettingsInteractionTests: XCTestCase {
         add(attachment)
     }
 
-    func testExportMonthButtonsChangeExactlyOneMonth() throws {
-        let previous = scrollTo(app.buttons.matching(identifier: "上个月"))
-        var calendar = Calendar(identifier: .gregorian)
-        calendar.timeZone = .current
+    func testExportEndDateCanChangeAndInvalidatesPreparedFile() throws {
+        let prepare = scrollTo(app.buttons.matching(identifier: "准备筛选账单 CSV"))
+        prepare.tap()
+        XCTAssertTrue(app.buttons["分享已准备的账单"].waitForExistence(timeout: 5))
+
+        let end = scrollTo(app.descendants(matching: .any).matching(identifier: "exportEndDate"))
+        end.tap()
+        let calendar = Calendar.current
         let now = Date()
-        let title: (Date) -> String = { date in
-            date.formatted(.dateTime.year().month(.wide).locale(Locale(identifier: "zh_CN")))
-        }
-        let current = title(now)
-        let prior = title(calendar.date(byAdding: .month, value: -1, to: now)!)
-        XCTAssertNotNil(visible(app.staticTexts.matching(identifier: current)), "Export should start in current month")
-        XCTAssertGreaterThanOrEqual(previous.frame.width, 44)
-        XCTAssertGreaterThanOrEqual(previous.frame.height, 44)
-        previous.coordinate(withNormalizedOffset: CGVector(dx: 0.1, dy: 0.5)).tap()
-        XCTAssertTrue(app.staticTexts[prior].waitForExistence(timeout: 3), "Previous-month button must update export month")
-        XCTAssertNotNil(visible(app.staticTexts.matching(identifier: prior)))
-        visible(app.buttons.matching(identifier: "下个月"))!.tap()
-        XCTAssertNotNil(visible(app.staticTexts.matching(identifier: current)), "Next-month button must reverse one step")
-        for _ in 0..<3 { visible(app.buttons.matching(identifier: "上个月"))!.tap() }
-        let earlier = title(calendar.date(byAdding: .month, value: -3, to: now)!)
-        XCTAssertNotNil(visible(app.staticTexts.matching(identifier: earlier)), "Repeated taps must each change one month")
-        let attachment = XCTAttachment(screenshot: app.screenshot())
-        attachment.name = "export-month-filter-changed"
-        attachment.lifetime = .keepAlways
-        add(attachment)
+        let alternate = calendar.component(.day, from: now) == calendar.range(of: .day, in: .month, for: now)?.count
+            ? calendar.date(byAdding: .day, value: -1, to: now)!
+            : now
+        let day = alternate.formatted(.dateTime.weekday(.wide).month(.wide).day().locale(Locale(identifier: "en_US")))
+        let date = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", day)).firstMatch
+        XCTAssertTrue(date.waitForExistence(timeout: 5))
+        date.tap()
+        let dismiss = app.buttons["PopoverDismissRegion"]
+        if dismiss.exists { dismiss.tap() }
+        XCTAssertFalse(app.buttons["分享已准备的账单"].exists)
+        XCTAssertTrue(app.buttons["准备筛选账单 CSV"].exists)
     }
 
     func testAppearanceChangesWhileSettingsStaysOpen() throws {

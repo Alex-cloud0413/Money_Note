@@ -7,3 +7,12 @@ enum CSVExport {
         return "\"" + protected.replacingOccurrences(of: "\"", with: "\"\"") + "\""
     }
 }
+
+extension CSVExport {
+    static func days(from start: Date, through end: Date, calendar: Calendar = .current) -> Range<Date>? {
+        let first = calendar.startOfDay(for: start)
+        let last = calendar.startOfDay(for: end)
+        guard first <= last, let exclusiveEnd = calendar.date(byAdding: .day, value: 1, to: last) else { return nil }
+        return first..<exclusiveEnd
+    }
+}

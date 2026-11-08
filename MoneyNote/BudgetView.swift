@@ -33,8 +33,6 @@ struct BudgetView: View {
                                 BudgetProgressCard(title: budget.categoryName, icon: "", spent: spent(budget.categoryName), limit: budget.amount)
                             }.buttonStyle(.plain)
                         }
-                        Text("预算按月独立设置，计划账目计入当月。")
-                            .font(.footnote).foregroundStyle(.secondary)
                     }.padding(20).readableWidth()
                 }
             }.readableWidth(1200).paperScreen().navigationTitle("预算").navigationBarTitleDisplayMode(.inline)
@@ -50,13 +48,17 @@ struct BudgetView: View {
 
 struct BudgetProgressCard: View {
     let title: String; let icon: String; let spent: Double; let limit: Double
-    var showsTopRule = true
+    var compact = false
     var body: some View {
-        VStack(alignment: .leading, spacing: 13) {
+        VStack(alignment: .leading, spacing: compact ? 8 : 13) {
             AdaptiveRow {
-                Text(title).font(.headline); AdaptiveSpacer()
+                Text(compact ? "预算 \(limit.asCurrency)" : title)
+                    .font(compact ? .footnote : .headline)
+                    .foregroundStyle(compact ? .secondary : .primary)
+                AdaptiveSpacer()
                 Text(spent > limit ? "超支 \((spent - limit).asCurrency)" : "剩余 \((limit - spent).asCurrency)")
-                    .font(.subheadline).fixedSize(horizontal: false, vertical: true)
+                    .font(compact ? .footnote.weight(.medium) : .subheadline)
+                    .monospacedDigit().fixedSize(horizontal: false, vertical: true)
             }
             GeometryReader { geometry in
                 let progress = min(max(spent / max(limit, 0.01), 0), 1)
@@ -66,16 +68,16 @@ struct BudgetProgressCard: View {
                 }
             }
                 .frame(height: 3)
+            .clipShape(Capsule())
                 .accessibilityLabel("预算使用进度")
                 .accessibilityValue(limit > 0 ? "\(Int(spent / limit * 100))%" : "未设置")
-            AdaptiveRow {
-                Text("已计入 \(spent.asCurrency)"); AdaptiveSpacer(); Text("预算 \(limit.asCurrency)")
-            }.font(.caption).foregroundStyle(.secondary)
+            if !compact {
+                AdaptiveRow {
+                    Text("已计入 \(spent.asCurrency)"); AdaptiveSpacer(); Text("预算 \(limit.asCurrency)")
+                }.font(.caption).foregroundStyle(.secondary)
+            }
         }
-        .padding(.vertical, 18)
-        .overlay(alignment: .top) {
-            if showsTopRule { Rectangle().fill(PaperTheme.rule).frame(height: 0.7) }
-        }
+        .padding(.vertical, compact ? 0 : 18)
     }
 }
 

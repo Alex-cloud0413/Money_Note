@@ -4,7 +4,7 @@
 //
 //  订阅制支出（自动续费）的数据结构。
 //  记录续费周期、每期扣款、首次开通日期与首期金额（很多软件首期有优惠），
-//  由 SubscriptionEngine 按月平摊并自动生成真实流水。
+//  由 SubscriptionEngine 按月或按天生成平摊流水。
 //
 
 import Foundation
@@ -56,6 +56,18 @@ final class SubscriptionModel {
     /// Legacy migration field. New versions neither display nor write account data.
     var account: AccountModel?
 
+    var allocationRaw: String? = nil
+    var foreignAmountRaw: String? = nil
+    var foreignFirstAmount: Double? = nil
+    var allocation: AllocationUnit {
+        get { allocationRaw.flatMap(AllocationUnit.init(rawValue:)) ?? .month }
+        set { allocationRaw = newValue == .day ? newValue.rawValue : nil }
+    }
+    var foreignAmount: ForeignAmount? {
+        get { ForeignAmount(payload: foreignAmountRaw) }
+        set { foreignAmountRaw = newValue?.payload }
+    }
+
     /// 是否仍在订阅中（取消后置 false，停止继续生成）
     var isActive: Bool = true
     /// 备注
@@ -103,6 +115,11 @@ final class SubscriptionModel {
         ((amount / Double(cycle.months)) * 100).rounded() / 100
     }
 
+    var amortized: Double {
+        let count = allocation.count(start: startDate, months: cycle.months)
+        return count > 0 ? amount / Double(count) : 0
+    }
+
     /// 是否设置了首期优惠（首期金额与常规价不同）
-    var hasFirstPromo: Bool { abs(firstAmount - amount) > 0.001 }
+    var hasFirstPromo: Bool { abs((foreignFirstAmount ?? firstAmount) - (foreignAmount?.original ?? amount)) > 0.001 }
 }

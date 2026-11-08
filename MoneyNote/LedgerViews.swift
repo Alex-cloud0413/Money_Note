@@ -38,7 +38,7 @@ struct LedgersView: View {
                 VStack(alignment: .leading, spacing: 18) {
                     MonthPicker(month: $session.month)
                     ForEach(LedgerChoice.choices(models)) { book in
-                        VStack(alignment: .leading, spacing: 20) {
+                        VStack(alignment: .leading, spacing: 10) {
                             HStack {
                                 Image(systemName: book.id == "work" ? "briefcase" : "book.closed")
                                     .font(.title2)
@@ -48,13 +48,13 @@ struct LedgersView: View {
                                     Image(systemName: "ellipsis").frame(width: 44, height: 44)
                                 }.accessibilityLabel("编辑" + book.name)
                             }
-                            let entries = LedgerAnalytics.records(records, ledger: book.id, month: session.month)
+                            let expense = LedgerAnalytics.records(records, ledger: book.id, month: session.month, type: .expense)
+                                .reduce(0) { $0 + $1.amount }
                             AdaptiveRow {
-                                VStack(alignment: .leading, spacing: 5) {
-                                    Text("所选月份支出").font(.caption).foregroundStyle(.secondary)
-                                    Text(entries.filter { $0.type == .expense }.reduce(0) { $0 + $1.amount }.asCurrency)
-                                        .font(.system(.title, design: .serif)).monospacedDigit()
-                                }
+                                Text(expense.asCurrency)
+                                    .font(.system(.title, design: .serif)).monospacedDigit()
+                                    .accessibilityLabel("所选月份支出")
+                                    .accessibilityValue(expense.asCurrency)
                                 AdaptiveSpacer()
                                 Button { selected = book.id; session.selection = 0 } label: {
                                     Label("进入账本",
@@ -62,19 +62,13 @@ struct LedgersView: View {
                                         .font(.subheadline).padding(.vertical, 10)
                                 }
                             }
-                            Text("所选月份 \(entries.count) 笔记录")
-                                .font(.caption).foregroundStyle(.secondary)
                         }
-                        .padding(.vertical, 20)
-                        .overlay(alignment: .top) { Rectangle().fill(PaperTheme.rule).frame(height: 0.7) }
+                        .padding(.vertical, 12)
                     }
                     Button { adding = true } label: {
                         Label("新建账本", systemImage: "plus").frame(maxWidth: .infinity, alignment: .leading).frame(minHeight: 52)
                     }
                     .buttonStyle(.plain)
-                    .overlay(alignment: .top) { Rectangle().fill(PaperTheme.rule).frame(height: 0.7) }
-                    Text("每个账本独立汇总明细、统计、预算与订阅，适合区分生活、事业或其他用途。")
-                        .font(.footnote).foregroundStyle(.secondary).padding(.horizontal, 4)
                 }.padding(20).readableWidth()
             }
             .paperScreen().navigationTitle("账本").navigationBarTitleDisplayMode(.inline)

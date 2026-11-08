@@ -11,6 +11,8 @@ private struct EntryDraft: Codable {
     var date: Date
     var installment: Bool
     var periods: Int
+    var currency: EntryCurrency?
+    var allocation: String?
 }
 
 private enum EntryStep: Int, CaseIterable {
@@ -54,6 +56,9 @@ struct TransactionEditor: View {
     @State private var date = Date.now
     @State private var isInstallment = false
     @State private var periods = 3
+    @State private var allocation: AllocationUnit = .month
+    @State private var currency: EntryCurrency = .CNY
+    @StateObject private var fx = FXLookup()
     @State private var didSetup = false
     @State private var baseline = ""
     @State private var confirmDiscard = false
@@ -84,7 +89,8 @@ struct TransactionEditor: View {
         EntryDraft(amount: amountText, type: type.rawValue,
                    parent: selectedParent?.name ?? "", child: selectedChild?.name ?? legacyChild,
                    ledger: ledgerKey, note: note, date: date,
-                   installment: isInstallment, periods: periods)
+                   installment: isInstallment, periods: periods,
+                   currency: currency, allocation: allocation.rawValue)
     }
     private var fingerprint: String {
         let encoder = JSONEncoder()
@@ -93,12 +99,26 @@ struct TransactionEditor: View {
     }
     private var dirty: Bool { didSetup && fingerprint != baseline }
     private var amountValue: Double? { Calc.evaluate(amountText) }
+    private var quote: FXQuote? { fx.matching(currency, date: date) }
+    private var unchangedForeignAmount: Bool {
+        guard let original = editing?.foreignAmount else { return false }
+        return original.original == amountValue && original.quote == quote
+    }
+    private var baseAmount: Double? {
+        guard let value = amountValue else { return nil }
+        if unchangedForeignAmount { return editing?.amount }
+        return currency == .CNY ? currency.rounded(value) : quote?.converted(value)
+    }
+    private var allocationCount: Int { allocation.count(start: date, months: periods) }
+
     private var amountValidation: String? {
         if amountText.isEmpty { return "请输入金额。" }
         guard let total = amountValue, total.isFinite else { return "算式无法计算，请检查除数是否为 0。" }
         if amountText.last.map({ "+-×÷".contains($0) }) == true { return "请补全算式，或删除末尾的运算符。" }
-        if (total * 100).rounded() < 1 { return "金额至少为 0.01 元。" }
-        if total >= 1_000_000_000 { return "金额需小于 10 亿元。" }
+        if !unchangedForeignAmount && currency.rounded(total) < 1 / currency.scale {
+            return "金额至少为 \(currency.display(1 / currency.scale))。"
+        }
+        if total >= 1_000_000_000 { return "金额需小于 10 亿。" }
         return nil
     }
     private var categoryValidation: String? {
@@ -109,8 +129,11 @@ struct TransactionEditor: View {
     private var finalValidation: String? {
         if let amountValidation { return amountValidation }
         if let categoryValidation { return categoryValidation }
-        if isInstallment, let total = amountValue, Int((total * 100).rounded()) < periods {
-            return "总金额不足以分成 \(periods) 期，每期至少 0.01 元。"
+        guard let total = baseAmount else { return "取得汇率后即可保存。" }
+        if total < 0.01 && !unchangedForeignAmount { return "折合人民币需至少 ¥0.01。" }
+        if !total.isFinite || total >= 1_000_000_000 { return "折合人民币需小于 10 亿元。" }
+        if isInstallment && (allocationCount == 0 || Int((total * 100).rounded()) < allocationCount) {
+            return "金额不足以平摊，每笔需至少 ¥0.01。"
         }
         return nil
     }
@@ -175,6 +198,9 @@ struct TransactionEditor: View {
                 Button("好") { saveError = nil }
             } message: { Text(saveError ?? "") }
             .onAppear(perform: setup)
+            .task(id: fx.id(currency: currency, date: date)) {
+                await fx.load(currency: currency, date: date)
+            }
             .onChange(of: fingerprint) { _, _ in
                 if editing == nil && didSetup && dirty { draftRaw = fingerprint }
             }
@@ -266,14 +292,18 @@ struct TransactionEditor: View {
                 }
                 .pickerStyle(.segmented)
                 VStack(alignment: .leading, spacing: 8) {
-                    Text("金额").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                    HStack {
+                        Text("金额").font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+                        Spacer()
+                        CurrencyPicker(currency: $currency)
+                    }
                     ScrollView(.horizontal, showsIndicators: false) {
-                        Text("¥" + (amountText.isEmpty ? "0" : amountText))
+                        Text((currency == .CNY ? "¥" : currency.rawValue + " ") + (amountText.isEmpty ? "0" : amountText))
                             .font(.system(size: 50, weight: .regular, design: .serif)).monospacedDigit().fixedSize()
                             .minimumScaleFactor(0.62)
                     }
                     if amountText.contains(where: { "+-×÷".contains($0) }), let value = amountValue {
-                        Text("计算结果 \(value.asCurrency)").font(.footnote).foregroundStyle(.secondary)
+                        Text("计算结果 \(currency.display(value))").font(.footnote).foregroundStyle(.secondary)
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -301,7 +331,7 @@ struct TransactionEditor: View {
     private var categoryStep: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
-                stepSummary(title: type.rawValue, value: amountValue?.asCurrency ?? "¥0.00")
+                stepSummary(title: type.rawValue, value: currency == .CNY ? (amountValue ?? 0).asCurrency : currency.display(amountValue ?? 0))
                 Text("一级分类")
                     .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
                 let columns = Array(repeating: GridItem(.flexible(), spacing: 10), count: typeSize.isAccessibilitySize ? 2 : 3)
@@ -363,13 +393,17 @@ struct TransactionEditor: View {
             VStack(alignment: .leading, spacing: 18) {
                 VStack(alignment: .leading, spacing: 8) {
                     Text(selectedCategoryName).font(.headline)
-                    MoneyText(value: amountValue ?? 0, style: .title)
+                    if currency == .CNY {
+                        MoneyText(value: amountValue ?? 0, style: .title)
+                    } else {
+                        Text(currency.display(amountValue ?? 0)).font(.title.monospacedDigit())
+                        FXQuoteRow(quote: quote, amount: amountValue, fixedAmount: baseAmount,
+                                   failed: fx.failed, retry: fx.retry)
+                    }
                     Text(type.rawValue).font(.caption).foregroundStyle(.secondary)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.vertical, 18)
-                .overlay(alignment: .top) { Rectangle().fill(PaperTheme.ink).frame(height: 1.2) }
-                .overlay(alignment: .bottom) { Rectangle().fill(PaperTheme.rule).frame(height: 0.7) }
+                .padding(.vertical, 8)
 
                 VStack(alignment: .leading, spacing: 12) {
                     Picker("账本", selection: $ledgerKey) {
@@ -377,29 +411,31 @@ struct TransactionEditor: View {
                     }
                     .frame(minHeight: 44)
                     .accessibilityIdentifier("entryLedgerPicker")
-                    Divider()
                     DatePicker("日期", selection: $date, displayedComponents: [.date])
                         .datePickerStyle(.compact).frame(minHeight: 44)
                     if date > .now {
                         Text("未来日期会标记为计划，并计入所选月份的汇总与预算。")
                             .font(.footnote).foregroundStyle(.secondary)
                     }
-                    Divider()
                     TextField("备注（可不填）", text: $note, axis: .vertical)
                         .focused($noteFocused).frame(minHeight: 44)
                     if editing == nil {
-                        Divider()
                         Toggle("分期", isOn: $isInstallment).frame(minHeight: 44)
                         if isInstallment {
-                            Stepper("\(periods) 期", value: $periods, in: 2...60).frame(minHeight: 44)
-                            Text("从所选日期开始，每月一笔。总金额按分分配，合计保持不变。")
-                                .font(.footnote).foregroundStyle(.secondary)
+                            Picker("平摊方式", selection: $allocation) {
+                                ForEach(AllocationUnit.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+                            }.pickerStyle(.segmented)
+                            Stepper("\(periods) 个月", value: $periods, in: 2...60).frame(minHeight: 44)
+                            if let total = baseAmount, allocationCount > 0 {
+                                let average = total / Double(allocationCount)
+                                let duration = allocation == .day ? "\(allocationCount) 天" : "\(periods) 个月"
+                                Text("\(duration) · \(allocation.averageLabel) \(average.asCurrency)")
+                                    .font(.footnote).foregroundStyle(.secondary)
+                            }
                         }
                     }
                 }
                 .padding(.vertical, 6)
-                .overlay(alignment: .top) { Rectangle().fill(PaperTheme.rule).frame(height: 0.7) }
-                .overlay(alignment: .bottom) { Rectangle().fill(PaperTheme.rule).frame(height: 0.7) }
                 InlineValidation(message: finalValidation)
             }
             .padding(20)
@@ -541,9 +577,12 @@ struct TransactionEditor: View {
         guard !didSetup else { return }
         if let record = editing {
             type = record.type
-            amountText = Calc.format(record.amount)
+            let foreign = record.foreignAmount
+            currency = foreign?.quote.currency ?? .CNY
+            amountText = Calc.format(foreign?.original ?? record.amount)
             note = record.note
             date = record.date
+            fx.use(foreign?.quote, currency: currency, date: date)
             selectedParent = categories.first { $0.parent == nil && $0.type == record.type && $0.matches(record.categoryName) }
             selectedChild = selectedParent?.sortedChildren.first { $0.matches(record.subcategoryName) }
             if selectedChild == nil { legacyChild = record.subcategoryName }
@@ -563,7 +602,9 @@ struct TransactionEditor: View {
                 if selectedChild == nil { legacyChild = saved.child }
                 childChoiceMade = selectedParent != nil
                 isInstallment = saved.installment
-                periods = saved.periods
+                periods = min(max(saved.periods, 2), 60)
+                currency = saved.currency ?? .CNY
+                allocation = saved.allocation.flatMap(AllocationUnit.init(rawValue:)) ?? .month
                 restoredDraft = true
             }
         }
@@ -572,8 +613,8 @@ struct TransactionEditor: View {
     }
 
     private func save() {
-        guard finalValidation == nil, let value = amountValue else { return }
-        let total = (value * 100).rounded() / 100
+        guard finalValidation == nil, let value = amountValue, let total = baseAmount else { return }
+        let foreign = quote.map { ForeignAmount(original: currency.rounded(value), quote: $0) }
         let parentName = selectedParent?.name ?? editing?.categoryName ?? ""
         let icon = selectedParent?.icon ?? editing?.categoryIcon ?? ""
         let child = selectedChild?.name ?? legacyChild
@@ -581,6 +622,7 @@ struct TransactionEditor: View {
 
         if let record = editing {
             record.amount = total
+            if record.foreignAmount != foreign { record.foreignAmount = foreign }
             record.type = type
             record.categoryName = parentName
             record.categoryIcon = icon
@@ -590,17 +632,26 @@ struct TransactionEditor: View {
             record.ledgerKey = ledgerKey
             savedRecord = record
         } else {
-            let plan = isInstallment ? InstallmentPlan.amounts(total: total, periods: periods) : [total]
-            guard !plan.isEmpty else { return }
+            let unit = isInstallment ? allocation : .month
+            let count = isInstallment ? allocationCount : 1
             let group: UUID? = isInstallment ? UUID() : nil
-            for (index, amount) in plan.enumerated() {
+            let amounts = isInstallment && unit == .month
+                ? InstallmentPlan.amounts(total: total, periods: periods)
+                : (0..<count).map { AllocationUnit.share(total: total, count: count, index: $0) }
+            for (index, amount) in amounts.enumerated() {
                 let record = TxRecord(amount: amount, type: type,
                                       categoryName: parentName, categoryIcon: icon,
                                       subcategoryName: child, note: note,
-                                      date: Calendar.current.date(byAdding: .month, value: index, to: date) ?? date,
+                                      date: unit.date(at: index, start: date) ?? date,
                                       installmentGroupID: group, installmentIndex: index + 1,
-                                      installmentCount: plan.count)
+                                      installmentCount: count)
                 record.ledgerKey = ledgerKey
+                record.allocation = unit
+                record.foreignAmount = foreign.map {
+                    ForeignAmount(original: AllocationUnit.share(total: $0.original, count: count, index: index,
+                                                                  scale: currency.scale),
+                                  quote: $0.quote)
+                }
                 context.insert(record)
                 if index == 0 { savedRecord = record }
             }
@@ -613,7 +664,7 @@ struct TransactionEditor: View {
             session.selection = 0
             session.selectedRecord = savedRecord?.persistentModelID
             if editing == nil { draftRaw = "" }
-            session.saved(isInstallment ? "已保存 \(periods) 期 · 合计 \(total.asCurrency)" : "已保存 · \(total.asCurrency)")
+            session.saved(isInstallment ? "已保存 \(allocation.rawValue)平摊 · 合计 \(total.asCurrency)" : "已保存 · \(total.asCurrency)")
             dismiss()
         } catch {
             context.rollback()

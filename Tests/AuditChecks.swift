@@ -93,6 +93,8 @@ struct AuditChecks {
         let kept = try context.fetch(FetchDescriptor<TxRecord>()).filter { $0.subscriptionUID == sub.uid }
         precondition(kept.count == 1)
         print("PASS: annual subscription cents sum exactly, sync is idempotent, and stop retains history while removing future plans")
+        try dailyAllocation(context)
+        checkDateRange()
         precondition(Calc.evaluate("12+3×4") == 24)
         precondition(Calc.evaluate("1÷0") == nil)
         precondition(Calc.evaluate("abc") == nil)
@@ -101,4 +103,71 @@ struct AuditChecks {
         print("PASS: calculator invalid arithmetic and CSV escaping")
         try context.save()
     }
+    @MainActor private static func dailyAllocation(_ context: ModelContext) throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "America/New_York")!
+        let leapStart = calendar.date(from: DateComponents(year: 2024, month: 1, day: 31))!
+        let count = AllocationUnit.day.count(start: leapStart, months: 3, calendar: calendar)
+        precondition(count == 90)
+        let cents = (0..<count).map { Int((AllocationUnit.share(total: 100.01, count: count, index: $0) * 100).rounded()) }
+        precondition(cents.reduce(0, +) == 10_001 && cents.max()! - cents.min()! == 1)
+        precondition(AllocationUnit.day.date(at: count, start: leapStart, calendar: calendar)
+                     == calendar.date(from: DateComponents(year: 2024, month: 4, day: 30)))
+
+        let local = Calendar.current
+        let today = local.startOfDay(for: .now)
+        let start = local.date(byAdding: .day, value: -15, to: today)!
+        let end = local.date(byAdding: .month, value: 1, to: start)!
+        let quote = FXQuote(currency: .USD, rate: 7.12, timestamp: start, historical: true)
+        let foreign = ForeignAmount(original: 30.01, quote: quote)
+        let daily = SubscriptionModel(name: "Daily", cycle: .monthly, amount: quote.converted(30.01),
+                                      firstAmount: quote.converted(10.01), startDate: start,
+                                      categoryName: "其他", categoryIcon: "")
+        daily.allocation = .day
+        daily.foreignAmount = foreign
+        daily.foreignFirstAmount = 10.01
+        context.insert(daily)
+        func records() throws -> [TxRecord] {
+            try context.fetch(FetchDescriptor<TxRecord>()).filter { $0.subscriptionUID == daily.uid }
+        }
+        try SubscriptionEngine.sync(context, upTo: end, only: daily.uid)
+        let first = try records().filter { $0.date < end }
+        precondition(first.count == AllocationUnit.day.count(start: start, months: 1))
+        precondition(abs(first.reduce(0) { $0 + $1.amount } - quote.converted(10.01)) < 0.00001)
+        precondition(abs(first.reduce(0) { $0 + ($1.foreignAmount?.original ?? 0) } - 10.01) < 0.00001)
+        precondition(first.allSatisfy { $0.allocation == .day && $0.foreignAmount?.quote == quote })
+        let initialCount = try records().count
+        first[0].deletedAt = .now
+        try SubscriptionEngine.sync(context, upTo: end, only: daily.uid)
+        let afterSync = try records()
+        precondition(afterSync.count == initialCount && afterSync.filter(\.isTrashed).count == 1)
+        daily.isActive = false
+        try SubscriptionEngine.sync(context, only: daily.uid)
+        let stopped = try records()
+        precondition(stopped.allSatisfy { $0.date <= today } && !stopped.isEmpty)
+        daily.isActive = true
+        daily.allocation = .month
+        try SubscriptionEngine.sync(context, upTo: end, rewriteAmounts: true, only: daily.uid)
+        let monthly = try records()
+        precondition(monthly.count == 2)
+        precondition(monthly.allSatisfy { $0.allocation == .month && $0.subscriptionMonthKey.count == 7 })
+        precondition(monthly.contains { abs($0.amount - quote.converted(10.01)) < 0.00001 })
+        print("PASS: calendar days, leap month, cent conservation, first-cycle FX, deletion, stopping and mode switch")
+    }
+
+    private static func checkDateRange() {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "America/New_York")!
+        let start = calendar.date(from: DateComponents(year: 2026, month: 10, day: 30, hour: 13))!
+        let end = calendar.date(from: DateComponents(year: 2026, month: 11, day: 1, hour: 7))!
+        let lastMoment = calendar.date(from: DateComponents(year: 2026, month: 11, day: 1, hour: 23, minute: 59))!
+        let range = CSVExport.days(from: start, through: end, calendar: calendar)!
+        precondition(range.contains(calendar.startOfDay(for: start)) && range.contains(lastMoment))
+        precondition(!range.contains(range.upperBound))
+        precondition(CSVExport.days(from: end, through: start, calendar: calendar) == nil)
+        let oneDay = CSVExport.days(from: end, through: end, calendar: calendar)!
+        precondition(oneDay.upperBound.timeIntervalSince(oneDay.lowerBound) == 25 * 3600)
+        print("PASS: CSV includes both dates across months and DST, rejects reversed ranges, supports a single day")
+    }
+
 }

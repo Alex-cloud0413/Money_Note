@@ -41,14 +41,9 @@ struct StatsBreakdown: View {
                 MoneyText(value: total, style: .largeTitle)
                 Text("\(scoped.count) 笔" + (parent == nil ? "" : " · 占本月\(type.rawValue) \(percent(overall > 0 ? total / overall : 0))"))
                     .font(.footnote).foregroundStyle(.secondary)
-                if scoped.contains(where: { $0.date > .now }) {
-                    Text("包含未来日期的计划账目").font(.footnote).foregroundStyle(.secondary)
-                }
             }
             .padding(.vertical, 20)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .overlay(alignment: .top) { Rectangle().fill(PaperTheme.ink).frame(height: 1.2) }
-            .overlay(alignment: .bottom) { Rectangle().fill(PaperTheme.rule).frame(height: 0.7) }
             if stats.isEmpty {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("这个范围还没有账目。")
@@ -58,7 +53,6 @@ struct StatsBreakdown: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.vertical, 26)
-                .overlay(alignment: .top) { Rectangle().fill(PaperTheme.rule).frame(height: 0.7) }
             } else {
                 ViewThatFits(in: .horizontal) {
                     if !typeSize.isAccessibilitySize {
@@ -75,8 +69,9 @@ struct StatsBreakdown: View {
     private var rankings: some View {
         VStack(alignment: .leading, spacing: 0) {
             Text(parent == nil ? "分类构成" : "子分类构成").font(.headline).padding(.bottom, 5)
-            Text(parent == nil ? "选择分类查看子类" : "选择子类查看账目")
-                .font(.caption).foregroundStyle(.secondary).padding(.bottom, 8)
+            if parent != nil {
+                Text("选择子类查看账目").font(.caption).foregroundStyle(.secondary).padding(.bottom, 8)
+            }
             ForEach(stats) { stat in
                 if let parent {
                     NavigationLink {
@@ -92,11 +87,9 @@ struct StatsBreakdown: View {
                     } label: { rankRow(stat) }
                         .buttonStyle(.plain).accessibilityIdentifier("category-" + stat.name)
                 }
-                if stat.id != stats.last?.id { Divider() }
             }
         }
         .padding(.vertical, 16)
-        .overlay(alignment: .top) { Rectangle().fill(PaperTheme.rule).frame(height: 0.7) }
     }
     private func rankRow(_ stat: CategoryTotal) -> some View {
         VStack(alignment: .leading, spacing: 10) {
@@ -147,7 +140,6 @@ struct StatsBreakdown: View {
             }.font(.subheadline)
         }
         .padding(.vertical, 16)
-        .overlay(alignment: .top) { Rectangle().fill(PaperTheme.rule).frame(height: 0.7) }
     }
     private func percent(_ value: Double) -> String { String(format: "%.1f%%", value * 100) }
 }

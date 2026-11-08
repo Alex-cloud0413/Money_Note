@@ -59,6 +59,37 @@ final class EntryInteractionTests: XCTestCase {
         app.buttons["关闭提示"].tap()
         XCTAssertTrue(app.buttons["addTransaction"].exists)
     }
+    func testTodayExpenseCanBeSwipedDeletedAndRestored() throws {
+        let toggle = visibleButton("todayExpenseToggle")
+        let todayRow = app.buttons.matching(identifier: "todayExpenseRow").firstMatch
+        let breakfast = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "巷口的早餐"))
+        XCTAssertEqual(toggle.value as? String, "已收起")
+        XCTAssertFalse(todayRow.exists)
+        XCTAssertTrue(breakfast.firstMatch.exists)
+
+        toggle.tap()
+        XCTAssertTrue(todayRow.waitForExistence(timeout: 5))
+        XCTAssertEqual(toggle.value as? String, "已展开")
+        todayRow.swipeLeft()
+        let delete = app.buttons["删除"]
+        XCTAssertTrue(delete.waitForExistence(timeout: 3))
+        delete.tap()
+        XCTAssertTrue(app.staticTexts["今天还没有支出"].waitForExistence(timeout: 5))
+        XCTAssertFalse(todayRow.exists)
+        XCTAssertTrue(breakfast.firstMatch.waitForNonExistence(timeout: 3))
+
+        let undo = app.buttons["撤销"]
+        XCTAssertTrue(undo.waitForExistence(timeout: 3))
+        undo.tap()
+        XCTAssertTrue(todayRow.waitForExistence(timeout: 5))
+        toggle.tap()
+        XCTAssertEqual(toggle.value as? String, "已收起")
+        XCTAssertTrue(todayRow.waitForNonExistence(timeout: 3))
+        XCTAssertTrue(breakfast.firstMatch.isHittable)
+        breakfast.firstMatch.swipeLeft()
+        XCTAssertTrue(delete.waitForExistence(timeout: 3))
+    }
+
     func testTabsShareMonthAndSettingsCanClose() throws {
         XCTAssertTrue(app.buttons["上个月"].firstMatch.isHittable)
         app.buttons["上个月"].firstMatch.tap()
