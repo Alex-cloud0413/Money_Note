@@ -130,7 +130,7 @@ struct ContentView: View {
                         .listRowBackground(Color.clear).listRowSeparator(.hidden)
                 } else {
                     ForEach(expenses) { record in
-                        transactionListRow(record)
+                        transactionListRow(record, mutesAllAllocations: true)
                             .accessibilityIdentifier("todayExpenseRow")
                     }
                 }
@@ -187,8 +187,11 @@ struct ContentView: View {
         }
     }
 
-    private func transactionListRow(_ record: TxRecord) -> some View {
-        Button { edit(record) } label: { TransactionRow(transaction: record) }
+    private func transactionListRow(_ record: TxRecord, mutesAllAllocations: Bool = false) -> some View {
+        Button { edit(record) } label: {
+            TransactionRow(transaction: record, subscription: subscription(for: record),
+                           mutesAllAllocations: mutesAllAllocations)
+        }
             .buttonStyle(.plain).listRowBackground(Color.clear)
             .listRowSeparator(.hidden).listRowInsets(ledgerRowInsets)
             .swipeActions(edge: .trailing, allowsFullSwipe: false) {
@@ -200,8 +203,13 @@ struct ContentView: View {
             }
     }
 
+    private func subscription(for record: TxRecord) -> SubscriptionModel? {
+        guard record.isSubscription else { return nil }
+        return subscriptions.first { $0.uid == record.subscriptionUID }
+    }
+
     private func edit(_ record: TxRecord) {
-        if record.isSubscription, let sub = subscriptions.first(where: { $0.uid == record.subscriptionUID }) {
+        if let sub = subscription(for: record) {
             editingSubscription = sub
         } else { editingRecord = record }
     }
@@ -293,28 +301,68 @@ struct DayHeader: View {
 
 struct TransactionRow: View {
     @Environment(\.dynamicTypeSize) private var typeSize
+    @Environment(\.colorSchemeContrast) private var contrast
     let transaction: TxRecord
+    var subscription: SubscriptionModel? = nil
+    var mutesAllAllocations = false
+
+    private static let allocationInk = PaperTheme.adaptive(0xB4B4B4, 0x585858)
+    private static let allocationDetailInk = PaperTheme.adaptive(0xB8B8B8, 0x4F4F4F)
+    private static let detailInk = PaperTheme.adaptive(0x6D6D6D, 0xA7A7A7)
+
     var body: some View {
+        let ink = rowInk
+        let metadataInk = isAllocation ? Self.allocationDetailInk : Self.detailInk
         AdaptiveRow {
             HStack(spacing: 12) {
                 CategoryGlyph(name: transaction.categoryName, icon: transaction.categoryIcon, size: 36)
                     .background(PaperTheme.soft, in: RoundedRectangle(cornerRadius: 9))
-                VStack(alignment: .leading, spacing: 5) {
-                    Text(title).font(.body.weight(.medium)).fixedSize(horizontal: false, vertical: true)
-                    if !detail.isEmpty { Text(detail).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true) }
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(title)
+                        .font(.body.weight(.medium))
+                        .lineLimit(typeSize.isAccessibilitySize ? nil : 1)
+                        .minimumScaleFactor(typeSize.isAccessibilitySize ? 1 : 0.78)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .foregroundStyle(ink)
+                    let metadata = detail
+                    if !metadata.isEmpty {
+                        Text(metadata)
+                            .font(.caption2)
+                            .lineLimit(typeSize.isAccessibilitySize ? nil : 1)
+                            .minimumScaleFactor(typeSize.isAccessibilitySize ? 1 : 0.85)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .foregroundStyle(contrast == .increased ? PaperTheme.ink : metadataInk)
+                    }
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
-            if !typeSize.isAccessibilitySize { AdaptiveSpacer() }
             MoneyText(value: transaction.amount, prefix: transaction.type == .expense ? "−" : "+", design: .default)
-                .frame(maxWidth: typeSize.isAccessibilitySize ? .infinity : 185, alignment: .trailing)
+                .foregroundStyle(ink)
+                .fixedSize(horizontal: !typeSize.isAccessibilitySize, vertical: false)
+                .frame(maxWidth: typeSize.isAccessibilitySize ? .infinity : nil, alignment: .trailing)
+                .layoutPriority(1)
         }
         .padding(.vertical, 10)
         .accessibilityElement(children: .combine)
     }
-    private var note: String { transaction.note.trimmingCharacters(in: .whitespacesAndNewlines) }
-    private var title: String { note.isEmpty ? transaction.displayCategory : note }
+    private var rowInk: Color {
+        let muted = (mutesAllAllocations && isAllocation) || isLaterAllocation
+        return contrast == .increased || !muted ? PaperTheme.ink : Self.allocationInk
+    }
+    private var isAllocation: Bool { transaction.isInstallment || transaction.isSubscription }
+    private var isLaterAllocation: Bool {
+        if let subscription {
+            return SubscriptionEngine.isLaterAllocation(on: transaction.date, unit: transaction.allocation,
+                                                        for: subscription)
+        }
+        return transaction.isInstallment && transaction.installmentIndex > 1
+    }
+    private var title: String {
+        let note = transaction.note.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        return note.isEmpty ? transaction.displayCategory : note
+    }
     private var detail: String {
-        var parts = note.isEmpty ? [] : [transaction.displayCategory]
+        var parts: [String] = []
         if transaction.isInstallment {
             let label = transaction.allocation == .day ? "按天平摊" : "分期"
             parts.append("\(label) \(transaction.installmentIndex)/\(transaction.installmentCount)")

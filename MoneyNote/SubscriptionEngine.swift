@@ -10,9 +10,25 @@ enum SubscriptionEngine {
     }
 
     /// 某个月份的起始日（当月1号 0 点）
-    private static func startOfMonth(_ date: Date) -> Date {
-        let cal = Calendar.current
-        return cal.date(from: cal.dateComponents([.year, .month], from: date)) ?? date
+    private static func startOfMonth(_ date: Date, calendar: Calendar = .current) -> Date {
+        calendar.date(from: calendar.dateComponents([.year, .month], from: date)) ?? date
+    }
+
+    /// The first allocation of each billing cycle represents the payment itself.
+    static func isLaterAllocation(on date: Date, unit: AllocationUnit, for sub: SubscriptionModel,
+                                  calendar: Calendar = .current) -> Bool {
+        let firstDay = calendar.startOfDay(for: sub.startDate)
+        let month = startOfMonth(date, calendar: calendar)
+        let firstMonth = startOfMonth(firstDay, calendar: calendar)
+        guard month >= firstMonth, unit == .month || date >= firstDay,
+              let months = calendar.dateComponents([.month], from: firstMonth, to: month).month else {
+            return false
+        }
+        if !months.isMultiple(of: sub.cycle.months) { return true }
+        guard unit == .day, let renewal = calendar.date(byAdding: .month, value: months, to: firstDay) else {
+            return false
+        }
+        return !calendar.isDate(date, inSameDayAs: renewal)
     }
 
     /// 把订阅开通日的「号数」套用到目标月份（超出当月天数则取当月最后一天）
@@ -40,7 +56,7 @@ enum SubscriptionEngine {
     private static func schedule(_ sub: SubscriptionModel, through endMonth: Date,
                                  calendar: Calendar) -> [Entry] {
         let firstDay = calendar.startOfDay(for: sub.startDate)
-        let start = sub.allocation == .day ? firstDay : startOfMonth(firstDay)
+        let start = sub.allocation == .day ? firstDay : startOfMonth(firstDay, calendar: calendar)
         guard let end = calendar.date(byAdding: .month, value: 1, to: endMonth) else { return [] }
         let cycle = sub.cycle.months
         let foreign = sub.foreignAmount

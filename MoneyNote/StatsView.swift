@@ -162,13 +162,14 @@ struct StatsTransactions: View {
                 MoneyText(value: scoped.reduce(0) { $0 + $1.amount }, style: .title)
             }
             ForEach(scoped) { record in
+                let subscription = record.isSubscription ? subscriptions.first { $0.uid == record.subscriptionUID } : nil
                 Button {
-                    if let sub = subscriptions.first(where: { $0.uid == record.subscriptionUID }), record.isSubscription { editingSubscription = sub }
+                    if let subscription { editingSubscription = subscription }
                     else { editing = record }
                 } label: {
                     VStack(alignment: .leading, spacing: 4) {
                         Text(record.date.asDayTitle).font(.caption).foregroundStyle(.secondary)
-                        TransactionRow(transaction: record)
+                        TransactionRow(transaction: record, subscription: subscription)
                     }
                 }.buttonStyle(.plain).listRowBackground(PaperTheme.surface)
             }

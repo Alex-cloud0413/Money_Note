@@ -107,9 +107,9 @@ final class TxRecord {
         type == .expense ? -amount : amount
     }
 
-    /// 列表上显示的类别文字：有子类就显示「餐饮 · 外卖」
+    /// 无备注时的账目标题，优先使用更具体的子类名称。
     var displayCategory: String {
-        subcategoryName.isEmpty ? categoryName : "\(categoryName) · \(subcategoryName)"
+        subcategoryName.isEmpty ? categoryName : subcategoryName
     }
 
     /// 是不是分期里的一笔

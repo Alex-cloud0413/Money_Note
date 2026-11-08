@@ -114,6 +114,18 @@ struct AuditChecks {
         precondition(AllocationUnit.day.date(at: count, start: leapStart, calendar: calendar)
                      == calendar.date(from: DateComponents(year: 2024, month: 4, day: 30)))
 
+        let quarterly = SubscriptionModel(name: "Quarterly", cycle: .quarterly, amount: 90,
+                                          firstAmount: 90, startDate: leapStart,
+                                          categoryName: "其他", categoryIcon: "")
+        let februaryEnd = calendar.date(from: DateComponents(year: 2024, month: 2, day: 29))!
+        let renewal = calendar.date(from: DateComponents(year: 2024, month: 4, day: 30))!
+        let beforeRenewal = calendar.date(byAdding: .day, value: -1, to: renewal)!
+        precondition(!SubscriptionEngine.isLaterAllocation(on: leapStart, unit: .day, for: quarterly, calendar: calendar))
+        precondition(SubscriptionEngine.isLaterAllocation(on: beforeRenewal, unit: .day, for: quarterly, calendar: calendar))
+        precondition(!SubscriptionEngine.isLaterAllocation(on: renewal, unit: .day, for: quarterly, calendar: calendar))
+        precondition(SubscriptionEngine.isLaterAllocation(on: februaryEnd, unit: .month, for: quarterly, calendar: calendar))
+        precondition(!SubscriptionEngine.isLaterAllocation(on: renewal, unit: .month, for: quarterly, calendar: calendar))
+
         let local = Calendar.current
         let today = local.startOfDay(for: .now)
         let start = local.date(byAdding: .day, value: -15, to: today)!
