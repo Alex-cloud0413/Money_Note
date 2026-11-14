@@ -9,8 +9,14 @@ struct BudgetView: View {
     @State private var editing: BudgetModel?
     @State private var addingTotal = false
     @State private var addingCategory = false
-    private var budgets: [BudgetModel] { BudgetRules.effective(allBudgets, ledger: ledger, month: session.month) }
     var body: some View {
+        let budgets = BudgetRules.effective(allBudgets, ledger: ledger, month: session.month)
+        let expenses = budgets.isEmpty ? [] : LedgerAnalytics.records(transactions, ledger: ledger, month: session.month, type: .expense)
+        let totalSpent = expenses.reduce(0) { $0 + $1.amount }
+        let spentByCategory = expenses.reduce(into: [String: Double]()) { totals, record in
+            totals[record.categoryName, default: 0] += record.amount
+        }
+
         NavigationStack {
             VStack(spacing: 0) {
                 LedgerMonthHeader(month: $session.month)
@@ -18,7 +24,7 @@ struct BudgetView: View {
                     VStack(alignment: .leading, spacing: 20) {
                         if let total = budgets.first(where: \.isTotal) {
                             Button { editing = total } label: {
-                                BudgetProgressCard(title: "总预算", icon: "circle.dashed", spent: spent(nil), limit: total.amount)
+                                BudgetProgressCard(title: "总预算", icon: "circle.dashed", spent: totalSpent, limit: total.amount)
                             }.buttonStyle(.plain)
                         } else {
                             Button("设置本月总预算") { addingTotal = true }.buttonStyle(PrimaryButtonStyle())
@@ -30,7 +36,7 @@ struct BudgetView: View {
                         }
                         ForEach(budgets.filter { !$0.isTotal }) { budget in
                             Button { editing = budget } label: {
-                                BudgetProgressCard(title: budget.categoryName, icon: "", spent: spent(budget.categoryName), limit: budget.amount)
+                                BudgetProgressCard(title: budget.categoryName, icon: "", spent: spentByCategory[budget.categoryName, default: 0], limit: budget.amount)
                             }.buttonStyle(.plain)
                         }
                     }.padding(20).readableWidth()
@@ -40,9 +46,6 @@ struct BudgetView: View {
                 .sheet(isPresented: $addingTotal) { BudgetEditView(budget: nil, isTotalNew: true, month: session.month) }
                 .sheet(isPresented: $addingCategory) { BudgetEditView(budget: nil, month: session.month) }
         }
-    }
-    private func spent(_ category: String?) -> Double {
-        LedgerAnalytics.records(transactions, ledger: ledger, month: session.month, type: .expense, parent: category).reduce(0) { $0 + $1.amount }
     }
 }
 

@@ -1,7 +1,5 @@
 import SwiftUI
 import SwiftData
-import CoreData
-import Combine
 
 struct ContentView: View {
     private struct TimelineRowID: Hashable {
@@ -21,17 +19,12 @@ struct ContentView: View {
     @State private var todayExpanded = false
     @State private var editingRecord: TxRecord?
     @State private var editingSubscription: SubscriptionModel?
-    @State private var maintenanceTask: Task<Void, Never>?
-    private var records: [TxRecord] { LedgerAnalytics.records(transactions, ledger: ledger, month: session.month) }
-    private var expense: Double { records.filter { $0.type == .expense }.reduce(0) { $0 + $1.amount } }
-    private var income: Double { records.filter { $0.type == .income }.reduce(0) { $0 + $1.amount } }
     private var todayExpenses: [TxRecord] {
         transactions.filter {
             !$0.isTrashed && $0.ledgerKey == ledger && $0.type == .expense &&
             Calendar.current.isDateInToday($0.date)
         }
     }
-    private var byDay: [Date: [TxRecord]] { Dictionary(grouping: records) { Calendar.current.startOfDay(for: $0.date) } }
     private var initialDate: Date {
         if Calendar.current.isDate(session.month, equalTo: .now, toGranularity: .month) { return .now }
         var parts = Calendar.current.dateComponents([.year, .month], from: session.month)
@@ -40,17 +33,18 @@ struct ContentView: View {
         return Calendar.current.date(from: parts) ?? session.month
     }
     var body: some View {
-        NavigationStack {
+        let monthlyRecords = LedgerAnalytics.records(transactions, ledger: ledger, month: session.month)
+        return NavigationStack {
             GeometryReader { geometry in
                 let wide = geometry.size.width >= 800 && !typeSize.isAccessibilitySize
                 VStack(spacing: 0) {
                     LedgerMonthHeader(month: $session.month)
                     if wide {
                         HStack(alignment: .top, spacing: 4) {
-                            ledgerList { summaryRows }.frame(width: min(380, geometry.size.width * 0.34))
-                            recordList(includeSummary: false)
+                            ledgerList { summaryRows(records: monthlyRecords) }.frame(width: min(380, geometry.size.width * 0.34))
+                            recordList(records: monthlyRecords, includeSummary: false)
                         }
-                    } else { recordList(includeSummary: true) }
+                    } else { recordList(records: monthlyRecords, includeSummary: true) }
                 }.readableWidth(1200)
             }.paperScreen(textureStrength: 0.45).navigationTitle("轻账记").navigationBarTitleDisplayMode(.inline)
                 .toolbar {
@@ -63,23 +57,16 @@ struct ContentView: View {
                 .sheet(item: $editingSubscription) { SubscriptionEditor(editing: $0) }
                 .sheet(isPresented: $showingSettings) { SettingsView() }
         }
-        .task { maintain() }
-        .onChange(of: session.month) { _, month in sync(upTo: month) }
-        .onReceive(NotificationCenter.default.publisher(for: .NSPersistentStoreRemoteChange)
-            .receive(on: RunLoop.main)) { _ in
-            maintenanceTask?.cancel()
-            maintenanceTask = Task { @MainActor in
-                try? await Task.sleep(for: .milliseconds(600))
-                guard !Task.isCancelled else { return }
-                maintain()
-            }
-        }
     }
-    private var summary: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            MonthLedgerSummary(expense: expense, income: income)
+    private func summary(records: [TxRecord]) -> some View {
+        let totals = records.reduce(into: (expense: 0.0, income: 0.0)) { totals, record in
+            if record.type == .expense { totals.expense += record.amount }
+            else { totals.income += record.amount }
+        }
+        return VStack(alignment: .leading, spacing: 18) {
+            MonthLedgerSummary(expense: totals.expense, income: totals.income)
             if let budget = BudgetRules.effective(budgets, ledger: ledger, month: session.month).first(where: { $0.isTotal }) {
-                BudgetProgressCard(title: "总预算", icon: "circle.dashed", spent: expense, limit: budget.amount,
+                BudgetProgressCard(title: "总预算", icon: "circle.dashed", spent: totals.expense, limit: budget.amount,
                                    compact: true)
             }
             HStack(spacing: 16) {
@@ -104,10 +91,10 @@ struct ContentView: View {
         .padding(.bottom, 18)
     }
 
-    private var summaryRows: some View {
+    private func summaryRows(records: [TxRecord]) -> some View {
         let expenses = todayExpenses
         return Section {
-            summary.listRowInsets(ledgerRowInsets)
+            summary(records: records).listRowInsets(ledgerRowInsets)
                 .listRowBackground(Color.clear).listRowSeparator(.hidden)
             Button { todayExpanded.toggle() } label: {
                 HStack(spacing: 10) {
@@ -160,10 +147,13 @@ struct ContentView: View {
             .contentMargins(.top, 8, for: .scrollContent)
     }
 
-    private func recordList(includeSummary: Bool) -> some View {
-        ScrollViewReader { reader in
+    private func recordList(records: [TxRecord], includeSummary: Bool) -> some View {
+        // Capture one grouping for all lazy section/header closures in this render.
+        let grouped = Dictionary(grouping: records) { Calendar.current.startOfDay(for: $0.date) }
+        let days = grouped.keys.sorted(by: >)
+        return ScrollViewReader { reader in
             ledgerList {
-                if includeSummary { summaryRows }
+                if includeSummary { summaryRows(records: records) }
                 if records.isEmpty {
                     Section {
                         VStack(alignment: .leading, spacing: 10) {
@@ -184,14 +174,15 @@ struct ContentView: View {
                         .listRowSeparator(.hidden)
                     }
                 }
-                ForEach(byDay.keys.sorted(by: >), id: \.self) { day in
+                ForEach(days, id: \.self) { day in
+                    let dayRecords = grouped[day] ?? []
                     Section {
-                        ForEach(byDay[day] ?? []) { record in
+                        ForEach(dayRecords) { record in
                             transactionListRow(record)
                                 .id(TimelineRowID(record: record.persistentModelID))
                         }
                     } header: {
-                        DayHeader(day: day, total: (byDay[day] ?? []).reduce(0) { $0 + $1.signedAmount })
+                        DayHeader(day: day, total: dayRecords.reduce(0) { $0 + $1.signedAmount })
                             .listRowInsets(ledgerRowInsets)
                     }
                 }
@@ -228,18 +219,7 @@ struct ContentView: View {
             editingSubscription = sub
         } else { editingRecord = record }
     }
-    private func maintain() {
-        do {
-            try CategoryModel.seedDefaultsIfNeeded(context)
-            try DataMaintenance.deduplicate(context)
-            try SubscriptionEngine.sync(context, upTo: session.month)
-        }
-        catch { context.rollback(); session.failed("账目整理尚未完成，请稍后重新打开 App。") }
-    }
-    private func sync(upTo date: Date) {
-        do { try SubscriptionEngine.sync(context, upTo: date) }
-        catch { context.rollback(); session.failed("订阅平摊尚未更新，请稍后重试。") }
-    }
+
 }
 
 private struct MonthLedgerSummary: View {

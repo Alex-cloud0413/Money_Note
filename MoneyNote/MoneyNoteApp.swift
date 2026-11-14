@@ -23,7 +23,10 @@ final class StoreLoader: ObservableObject {
             #endif
             let loaded = try ModelContainer(for: schema, configurations: [config])
             #if DEBUG
-            if preview { DemoData.populate(loaded.mainContext) }
+            if preview {
+                DemoData.populate(loaded.mainContext,
+                                  transactionCount: ProcessInfo.processInfo.arguments.contains("--stress-preview-data") ? 1118 : 10)
+            }
             #endif
             container = loaded
         } catch { failed = true }

@@ -33,11 +33,20 @@ struct LedgersView: View {
     @State private var adding = false
 
     var body: some View {
+        let choices = LedgerChoice.choices(models)
+        let calendar = Calendar.current
+        let month = session.month
+        let spentByLedger = records.reduce(into: [String: Double]()) { totals, record in
+            guard !record.isTrashed, record.type == .expense,
+                  calendar.isDate(record.date, equalTo: month, toGranularity: .month) else { return }
+            totals[record.ledgerKey, default: 0] += record.amount
+        }
+
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
                     MonthPicker(month: $session.month)
-                    ForEach(LedgerChoice.choices(models)) { book in
+                    ForEach(choices) { book in
                         VStack(alignment: .leading, spacing: 10) {
                             HStack {
                                 Image(systemName: book.id == "work" ? "briefcase" : "book.closed")
@@ -48,8 +57,7 @@ struct LedgersView: View {
                                     Image(systemName: "ellipsis").frame(width: 44, height: 44)
                                 }.accessibilityLabel("编辑" + book.name)
                             }
-                            let expense = LedgerAnalytics.records(records, ledger: book.id, month: session.month, type: .expense)
-                                .reduce(0) { $0 + $1.amount }
+                            let expense = spentByLedger[book.id, default: 0]
                             AdaptiveRow {
                                 Text(expense.asCurrency)
                                     .font(.system(.title, design: .serif)).monospacedDigit()

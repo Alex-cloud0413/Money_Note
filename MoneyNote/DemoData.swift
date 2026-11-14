@@ -5,7 +5,7 @@ import SwiftData
 /// Opt-in, in-memory fixtures only. Never opens or modifies the user's persistent store.
 @MainActor
 enum DemoData {
-    static func populate(_ context: ModelContext) {
+    static func populate(_ context: ModelContext, transactionCount: Int = 10) {
         try? CategoryModel.seedDefaultsIfNeeded(context)
         let samples: [(Double, TransactionType, String, String, String, String, Int)] = [
             (36, .expense, "餐饮", "早餐", "巷口的早餐", "life", 0),
@@ -24,6 +24,17 @@ enum DemoData {
                               subcategoryName: subcategory, note: note,
                               date: Calendar.current.date(byAdding: .day, value: -days, to: .now) ?? .now)
             tx.ledgerKey = ledger
+            context.insert(tx)
+        }
+        // Opt-in volume fixture for tab/render regression checks. The caller
+        // only reaches this code with an isolated, in-memory preview store.
+        for index in samples.count..<max(samples.count, transactionCount) {
+            let sample = samples[index % samples.count]
+            let tx = TxRecord(amount: Double(index % 997 + 1) / 10,
+                              type: sample.1, categoryName: sample.2, categoryIcon: "",
+                              subcategoryName: sample.3, note: "性能验证记录 \(index)",
+                              date: Calendar.current.date(byAdding: .day, value: -(index % 168 + 1), to: .now) ?? .now)
+            tx.ledgerKey = sample.5
             context.insert(tx)
         }
         let budget = BudgetModel(amount: 3000, ledgerKey: "life")

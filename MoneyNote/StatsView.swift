@@ -28,12 +28,18 @@ struct StatsBreakdown: View {
     @Query private var records: [TxRecord]
     let ledger: String; let month: Date; let type: TransactionType
     var parent: String? = nil
-    private var monthly: [TxRecord] { LedgerAnalytics.records(records, ledger: ledger, month: month, type: type) }
-    private var scoped: [TxRecord] { monthly.filter { parent == nil || $0.categoryName == parent } }
-    private var total: Double { scoped.reduce(0) { $0 + $1.amount } }
-    private var overall: Double { monthly.reduce(0) { $0 + $1.amount } }
-    private var stats: [CategoryTotal] { LedgerAnalytics.categories(scoped, children: parent != nil) }
+    private struct MonthTotal: Identifiable {
+        let id: Int
+        let date: Date
+        let amount: Double
+    }
     var body: some View {
+        let monthly = LedgerAnalytics.records(records, ledger: ledger, month: month, type: type)
+        let scoped = monthly.filter { parent == nil || $0.categoryName == parent }
+        let total = scoped.reduce(0) { $0 + $1.amount }
+        let overall = monthly.reduce(0) { $0 + $1.amount }
+        let stats = LedgerAnalytics.categories(scoped, children: parent != nil)
+
         VStack(alignment: .leading, spacing: 22) {
             VStack(alignment: .leading, spacing: 8) {
                 Text((parent == nil ? "本月" : parent!) + type.rawValue)
@@ -54,19 +60,28 @@ struct StatsBreakdown: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.vertical, 26)
             } else {
+                let monthTotals = (0..<6).map { index in
+                    let date = Calendar.current.date(byAdding: .month, value: index - 5, to: month) ?? month
+                    let amount = LedgerAnalytics.records(records, ledger: ledger, month: date, type: type, parent: parent)
+                        .reduce(0) { $0 + $1.amount }
+                    return MonthTotal(id: index, date: date, amount: amount)
+                }
                 ViewThatFits(in: .horizontal) {
                     if !typeSize.isAccessibilitySize {
                         HStack(alignment: .top, spacing: 20) {
-                            rankings.frame(minWidth: 470)
-                            trend.frame(width: 320)
+                            rankings(stats, overall: overall).frame(minWidth: 470)
+                            trend(monthTotals).frame(width: 320)
                         }
                     }
-                    VStack(spacing: 20) { rankings; trend }
+                    VStack(spacing: 20) {
+                        rankings(stats, overall: overall)
+                        trend(monthTotals)
+                    }
                 }
             }
         }
     }
-    private var rankings: some View {
+    private func rankings(_ stats: [CategoryTotal], overall: Double) -> some View {
         VStack(alignment: .leading, spacing: 0) {
             Text(parent == nil ? "分类构成" : "子分类构成").font(.headline).padding(.bottom, 5)
             if parent != nil {
@@ -76,7 +91,7 @@ struct StatsBreakdown: View {
                 if let parent {
                     NavigationLink {
                         StatsTransactions(ledger: ledger, month: month, type: type, parent: parent, child: stat.name)
-                    } label: { rankRow(stat) }
+                    } label: { rankRow(stat, overall: overall) }
                     .buttonStyle(.plain)
                 } else {
                     NavigationLink {
@@ -84,14 +99,14 @@ struct StatsBreakdown: View {
                             StatsBreakdown(ledger: ledger, month: month, type: type, parent: stat.name)
                                 .padding(20).readableWidth(1100)
                         }.paperScreen().navigationTitle(stat.name).navigationBarTitleDisplayMode(.inline)
-                    } label: { rankRow(stat) }
+                    } label: { rankRow(stat, overall: overall) }
                         .buttonStyle(.plain).accessibilityIdentifier("category-" + stat.name)
                 }
             }
         }
         .padding(.vertical, 16)
     }
-    private func rankRow(_ stat: CategoryTotal) -> some View {
+    private func rankRow(_ stat: CategoryTotal, overall: Double) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             AdaptiveRow {
                 Text(stat.name).font(.body)
@@ -117,24 +132,20 @@ struct StatsBreakdown: View {
             }
         }.padding(.vertical, 14).contentShape(Rectangle()).accessibilityElement(children: .combine)
     }
-    private var trend: some View {
+    private func trend(_ totals: [MonthTotal]) -> some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("近六个月" + type.rawValue).font(.headline)
-            Chart(0..<6, id: \.self) { index in
-                let date = Calendar.current.date(byAdding: .month, value: index - 5, to: month) ?? month
-                let value = LedgerAnalytics.records(records, ledger: ledger, month: date, type: type, parent: parent).reduce(0) { $0 + $1.amount }
-                BarMark(x: .value("月份", date.formatted(.dateTime.month(.twoDigits))), y: .value("金额", value))
-                    .foregroundStyle(index == 5 ? PaperTheme.accent : PaperTheme.accent.opacity(0.28))
-                    .accessibilityLabel(date.formatted(.dateTime.year().month(.wide).locale(Locale(identifier: "zh_CN"))))
-                    .accessibilityValue((parent.map { $0 + "，" } ?? "") + type.rawValue + value.asCurrency)
+            Chart(totals) { total in
+                BarMark(x: .value("月份", total.date.formatted(.dateTime.month(.twoDigits))), y: .value("金额", total.amount))
+                    .foregroundStyle(total.id == 5 ? PaperTheme.accent : PaperTheme.accent.opacity(0.28))
+                    .accessibilityLabel(total.date.formatted(.dateTime.year().month(.wide).locale(Locale(identifier: "zh_CN"))))
+                    .accessibilityValue((parent.map { $0 + "，" } ?? "") + type.rawValue + total.amount.asCurrency)
             }.frame(height: 170)
             DisclosureGroup("查看每月金额") {
-                ForEach(0..<6, id: \.self) { index in
-                    let date = Calendar.current.date(byAdding: .month, value: index - 5, to: month) ?? month
-                    let value = LedgerAnalytics.records(records, ledger: ledger, month: date, type: type, parent: parent).reduce(0) { $0 + $1.amount }
+                ForEach(totals) { total in
                     AdaptiveRow {
-                        Text(date.formatted(.dateTime.year().month(.wide).locale(Locale(identifier: "zh_CN"))))
-                        AdaptiveSpacer(); MoneyText(value: value)
+                        Text(total.date.formatted(.dateTime.year().month(.wide).locale(Locale(identifier: "zh_CN"))))
+                        AdaptiveSpacer(); MoneyText(value: total.amount)
                     }.padding(.vertical, 6).accessibilityElement(children: .combine)
                 }
             }.font(.subheadline)
@@ -155,6 +166,7 @@ struct StatsTransactions: View {
             .filter { ($0.subcategoryName.isEmpty ? "未分子类" : $0.subcategoryName) == child }
     }
     var body: some View {
+        let scoped = self.scoped
         PaperList {
             Section {
                 Text(month.formatted(.dateTime.year().month(.wide).locale(Locale(identifier: "zh_CN"))) + " · " + parent)

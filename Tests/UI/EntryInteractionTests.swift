@@ -6,7 +6,10 @@ final class EntryInteractionTests: XCTestCase {
     override func setUpWithError() throws {
         continueAfterFailure = false
         XCUIDevice.shared.orientation = .portrait
-        app.launchArguments = ["--preview-data", "-pinnedCategoryNames", "餐饮\n交通"]
+        app.launchArguments = ["--preview-data", "-selectedLedger", "life", "-pinnedCategoryNames", "餐饮\n交通"]
+        if name.contains("GlassTabBar") || name.contains("TabsShareMonth") || name.contains("EnteringLedger") {
+            app.launchArguments.append("--stress-preview-data")
+        }
         app.launch()
         app.activate()
         XCTAssertEqual(app.state, .runningForeground)
