@@ -4,10 +4,20 @@ import Combine
 import UIKit
 import CoreData
 
+/// Navigation changes notify only the native tab shell.
+@MainActor
+final class AppTabSelection: ObservableObject {
+    @Published var value = 0
+}
+
 @MainActor
 final class AppSession: ObservableObject {
     @Published var month = Date.now
-    @Published var selection = 0
+    let tabs = AppTabSelection()
+    var selection: Int {
+        get { tabs.value }
+        set { if tabs.value != newValue { tabs.value = newValue } }
+    }
     @Published var notice: String?
     @Published var undoAction: (() -> Void)?
     @Published var cloudStatus = "等待 iCloud 同步状态"

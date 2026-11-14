@@ -54,34 +54,45 @@ final class EntryInteractionTests: XCTestCase {
         discardEntry()
     }
 
-    func testBottomNavigationKeepsItsFrameAcrossTabs() throws {
-        let bar = app.descendants(matching: .any).matching(identifier: "mainTabBar").firstMatch
-        XCTAssertTrue(bar.waitForExistence(timeout: 3))
+    func testNativeGlassTabBarKeepsGeometryAndSelection() throws {
+        let bar = app.tabBars.firstMatch
+        XCTAssertTrue(bar.waitForExistence(timeout: 5))
+        XCTAssertTrue(bar.isHittable)
         let initial = bar.frame
-        let frames = (0..<4).map { app.buttons["mainTab-\($0)"].frame }
-        for index in [1, 2, 3, 0, 3, 1, 0] {
-            let tab = app.buttons["mainTab-\(index)"]
+        for name in ["账本", "统计", "预算", "明细", "预算", "账本", "明细"] {
+            let tab = bar.buttons[name]
             XCTAssertTrue(tab.isHittable)
             tab.tap()
-            XCTAssertEqual(tab.value as? String, "已选中")
-            XCTAssertEqual(bar.frame.minX, initial.minX, accuracy: 1)
+            XCTAssertTrue(tab.isSelected)
             XCTAssertEqual(bar.frame.minY, initial.minY, accuracy: 1)
             XCTAssertEqual(bar.frame.width, initial.width, accuracy: 1)
             XCTAssertEqual(bar.frame.height, initial.height, accuracy: 1)
-            for item in 0..<4 {
-                let current = app.buttons["mainTab-\(item)"].frame
-                XCTAssertEqual(current.midX, frames[item].midX, accuracy: 1)
-                XCTAssertEqual(current.width, frames[item].width, accuracy: 1)
-            }
-            XCTAssertFalse(app.tabBars.firstMatch.isHittable, app.debugDescription)
-            if index == 2 || index == 3 { snapshot("fixed-bottom-navigation-\(index)") }
+            if name == "统计" || name == "预算" { snapshot("native-glass-" + name) }
         }
+        if #available(iOS 26.0, *) {
+            // Native glass supports dragging its selection lens between destinations.
+            let start = bar.buttons["明细"].coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+            let end = bar.buttons["预算"].coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+            start.press(forDuration: 0.1, thenDragTo: end)
+            XCTAssertTrue(bar.buttons["预算"].isSelected)
+        }
+        bar.buttons["明细"].tap()
         XCUIDevice.shared.orientation = .landscapeLeft
-        snapshot("fixed-bottom-navigation-landscape")
+        snapshot("native-glass-landscape")
         let reachable = NSPredicate { _, _ in
-            (0..<4).allSatisfy { self.app.buttons["mainTab-\($0)"].isHittable }
+            ["明细", "账本", "统计", "预算"].allSatisfy { bar.buttons[$0].isHittable }
         }
         XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: reachable, object: nil)], timeout: 5), .completed)
+    }
+
+    func testEnteringLedgerReturnsToDetailTab() throws {
+        let bar = app.tabBars.firstMatch
+        bar.buttons["账本"].tap()
+        let enter = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "进入账本")).firstMatch
+        XCTAssertTrue(enter.waitForExistence(timeout: 3))
+        enter.tap()
+        XCTAssertTrue(bar.buttons["明细"].isSelected)
+        XCTAssertTrue(app.buttons["addTransaction"].waitForExistence(timeout: 3))
     }
 
     func testKeypadCalculationAndChildCategoryReselection() throws {
