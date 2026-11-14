@@ -57,10 +57,6 @@ struct ContentView: View {
                     ToolbarItem(placement: .topBarLeading) {
                         Button { showingSettings = true } label: { Label("设置", systemImage: "gearshape") }
                     }
-                    ToolbarItem(placement: .topBarTrailing) {
-                        Button { showingAdd = true } label: { Label("记一笔", systemImage: "plus") }
-                            .accessibilityIdentifier("addTransaction")
-                    }
                 }
                 .sheet(isPresented: $showingAdd) { TransactionEditor(initialDate: initialDate) }
                 .sheet(item: $editingRecord) { TransactionEditor(editing: $0) }
@@ -86,7 +82,23 @@ struct ContentView: View {
                 BudgetProgressCard(title: "总预算", icon: "circle.dashed", spent: expense, limit: budget.amount,
                                    compact: true)
             }
-            PinnedCategoryCards(records: records)
+            HStack(spacing: 16) {
+                PinnedCategoryCards(records: records)
+                Spacer(minLength: 0)
+                Button {
+                    EntryFeedback.tap()
+                    showingAdd = true
+                } label: {
+                    Label("记一笔", systemImage: "plus")
+                        .font(.subheadline.weight(.semibold))
+                        .padding(.horizontal, 16)
+                        .frame(minHeight: 48)
+                        .background(PaperTheme.soft, in: RoundedRectangle(cornerRadius: 4))
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("addTransaction")
+            }
         }
         .padding(.top, 8)
         .padding(.bottom, 18)
@@ -159,7 +171,10 @@ struct ContentView: View {
                                 .font(.title2.weight(.semibold))
                             Text("第一笔会记入上方所选月份。")
                                 .font(.subheadline).foregroundStyle(.secondary)
-                            Button("记一笔") { showingAdd = true }
+                            Button("记一笔") {
+                                EntryFeedback.tap()
+                                showingAdd = true
+                            }
                                 .buttonStyle(PrimaryButtonStyle())
                                 .padding(.top, 10)
                         }

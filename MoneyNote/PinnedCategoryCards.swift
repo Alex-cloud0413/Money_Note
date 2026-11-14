@@ -18,12 +18,17 @@ private struct PinnedLedgerCards: View {
     private var names: [String] { CategoryOperations.resolvedPins(raw, categories: categories) }
     var body: some View {
         if !names.isEmpty {
-            Button { showing = true } label: {
+            Button {
+                EntryFeedback.tap()
+                showing = true
+            } label: {
                 Text("关注分类")
                     .font(.subheadline.weight(.medium))
                     .frame(maxWidth: .infinity, minHeight: 44, alignment: .center)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .accessibilityIdentifier("pinnedCategorySummary")
             .sheet(isPresented: $showing) {
                 PinnedCategorySummary(names: names, records: records, categories: categories)
                     .presentationDetents([.medium, .large])

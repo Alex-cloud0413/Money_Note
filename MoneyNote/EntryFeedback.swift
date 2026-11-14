@@ -1,16 +1,16 @@
 import UIKit
 
-/// Reuse and prepare one gentle impact generator for successive entry actions.
+/// Reuse a crisp light impact and prepare it for successive entry actions.
 @MainActor
 enum EntryFeedback {
-    private static let generator = UIImpactFeedbackGenerator(style: .soft)
+    private static let generator = UIImpactFeedbackGenerator(style: .light)
 
     static func prepare() {
         generator.prepare()
     }
 
     static func tap() {
-        generator.impactOccurred(intensity: 0.55)
+        generator.impactOccurred()
         generator.prepare()
     }
 }

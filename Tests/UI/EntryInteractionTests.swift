@@ -6,7 +6,7 @@ final class EntryInteractionTests: XCTestCase {
     override func setUpWithError() throws {
         continueAfterFailure = false
         XCUIDevice.shared.orientation = .portrait
-        app.launchArguments = ["--preview-data"]
+        app.launchArguments = ["--preview-data", "-pinnedCategoryNames", "餐饮\n交通"]
         app.launch()
         app.activate()
         XCTAssertEqual(app.state, .runningForeground)
@@ -33,6 +33,55 @@ final class EntryInteractionTests: XCTestCase {
         XCTAssertTrue(discard.waitForExistence(timeout: 3))
         discard.tap()
         XCTAssertTrue(app.buttons["addTransaction"].waitForExistence(timeout: 3))
+    }
+
+    func testAddEntrySharesPinnedCategoryRow() throws {
+        let add = app.buttons["addTransaction"]
+        let pins = app.buttons["pinnedCategorySummary"]
+        XCTAssertTrue(pins.waitForExistence(timeout: 3))
+        XCTAssertTrue(add.isHittable)
+        XCTAssertTrue(pins.isHittable)
+        XCTAssertEqual(add.frame.midY, pins.frame.midY, accuracy: 2)
+        XCTAssertGreaterThan(add.frame.midX, app.frame.midX)
+        XCTAssertGreaterThanOrEqual(add.frame.height, 44)
+        XCTAssertGreaterThan(add.frame.minY, app.navigationBars["轻账记"].frame.maxY + 100)
+        XCTAssertFalse(app.navigationBars["轻账记"].buttons["addTransaction"].exists)
+        snapshot("entry-button-beside-pinned-categories")
+        add.tap()
+        XCTAssertTrue(app.buttons["entryNext"].waitForExistence(timeout: 3))
+        visibleButton("清空").tap()
+        visibleButton("1").tap()
+        discardEntry()
+    }
+
+    func testBottomNavigationKeepsItsFrameAcrossTabs() throws {
+        let bar = app.descendants(matching: .any).matching(identifier: "mainTabBar").firstMatch
+        XCTAssertTrue(bar.waitForExistence(timeout: 3))
+        let initial = bar.frame
+        let frames = (0..<4).map { app.buttons["mainTab-\($0)"].frame }
+        for index in [1, 2, 3, 0, 3, 1, 0] {
+            let tab = app.buttons["mainTab-\(index)"]
+            XCTAssertTrue(tab.isHittable)
+            tab.tap()
+            XCTAssertEqual(tab.value as? String, "已选中")
+            XCTAssertEqual(bar.frame.minX, initial.minX, accuracy: 1)
+            XCTAssertEqual(bar.frame.minY, initial.minY, accuracy: 1)
+            XCTAssertEqual(bar.frame.width, initial.width, accuracy: 1)
+            XCTAssertEqual(bar.frame.height, initial.height, accuracy: 1)
+            for item in 0..<4 {
+                let current = app.buttons["mainTab-\(item)"].frame
+                XCTAssertEqual(current.midX, frames[item].midX, accuracy: 1)
+                XCTAssertEqual(current.width, frames[item].width, accuracy: 1)
+            }
+            XCTAssertFalse(app.tabBars.firstMatch.isHittable, app.debugDescription)
+            if index == 2 || index == 3 { snapshot("fixed-bottom-navigation-\(index)") }
+        }
+        XCUIDevice.shared.orientation = .landscapeLeft
+        snapshot("fixed-bottom-navigation-landscape")
+        let reachable = NSPredicate { _, _ in
+            (0..<4).allSatisfy { self.app.buttons["mainTab-\($0)"].isHittable }
+        }
+        XCTAssertEqual(XCTWaiter.wait(for: [XCTNSPredicateExpectation(predicate: reachable, object: nil)], timeout: 5), .completed)
     }
 
     func testKeypadCalculationAndChildCategoryReselection() throws {
@@ -70,7 +119,7 @@ final class EntryInteractionTests: XCTestCase {
         discardEntry()
     }
 
-    func testCategoryWithoutChildrenAndCancelledChildPicker() throws {
+    func testCategoryWithoutChildrenAndReturningToParents() throws {
         app.buttons["addTransaction"].tap()
         visibleButton("清空").tap()
         visibleButton("8").tap()
@@ -83,17 +132,17 @@ final class EntryInteractionTests: XCTestCase {
         XCTAssertTrue(app.staticTexts["一级分类"].waitForExistence(timeout: 3))
         visibleButton("餐饮").tap()
         XCTAssertTrue(app.buttons["不分子类"].waitForExistence(timeout: 3), app.debugDescription)
-        snapshot("entry-child-picker-before-cancel")
-        if app.buttons["返回分类"].exists {
-            app.buttons["返回分类"].tap()
-        } else {
-            // Newer system popovers dismiss by tapping their outside region.
-            app.navigationBars["记一笔"].coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
-        }
+        XCTAssertTrue(app.buttons["entryParentCategories"].isHittable)
+        snapshot("entry-inline-child-choices")
+        visibleButton("entryBack").tap()
+        XCTAssertTrue(app.staticTexts["一级分类"].waitForExistence(timeout: 3))
+        visibleButton("餐饮").tap()
+        XCTAssertTrue(app.buttons["entryParentCategories"].waitForExistence(timeout: 3))
+        app.buttons["entryParentCategories"].tap()
         XCTAssertTrue(app.staticTexts["一级分类"].waitForExistence(timeout: 3))
         XCTAssertFalse(app.buttons["saveTransaction"].exists)
         XCTAssertFalse(app.buttons["entryNext"].isEnabled)
-        snapshot("entry-category-picker-cancelled")
+        snapshot("entry-returned-to-parent-choices")
         visibleButton("购物").tap()
         XCTAssertTrue(app.buttons["不分子类"].waitForExistence(timeout: 3))
         app.buttons["不分子类"].tap()

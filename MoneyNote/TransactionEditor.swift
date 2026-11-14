@@ -179,16 +179,6 @@ struct TransactionEditor: View {
                 }
             }
             .sheet(isPresented: $managingCategories) { CategoryManagerView() }
-            .confirmationDialog(childDialogTitle, isPresented: $choosingChild,
-                                titleVisibility: .visible) {
-                Button("不分子类") { completeCategory(with: nil) }
-                ForEach(activeChildren) { child in
-                    Button(child.name) { completeCategory(with: child) }
-                }
-                Button("返回分类", role: .cancel) { EntryFeedback.tap() }
-            } message: {
-                Text("选择后会自动进入详情。")
-            }
             .protectDraft(dirty, confirming: $confirmDiscard) {
                 if editing == nil { draftRaw = "" }
                 dismiss()
@@ -343,32 +333,14 @@ struct TransactionEditor: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 18) {
                 stepSummary(title: type.rawValue, value: currency == .CNY ? (amountValue ?? 0).asCurrency : currency.display(amountValue ?? 0))
-                Text("一级分类")
+                Text(choosingChild ? (selectedParent?.name ?? "") + " · 子分类" : "一级分类")
                     .font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-                let columns = Array(repeating: GridItem(.flexible(), spacing: 10), count: typeSize.isAccessibilitySize ? 2 : 3)
-                LazyVGrid(columns: columns, spacing: 10) {
-                    ForEach(topCategories) { parent in
-                        let selected = selectedParent === parent
-                        Button {
-                            choose(parent)
-                        } label: {
-                            VStack(spacing: 8) {
-                                CategoryGlyph(name: parent.name, icon: parent.icon, size: 44)
-                                Text(parent.name).font(.subheadline.weight(.medium)).lineLimit(2)
-                            }
-                            .frame(maxWidth: .infinity, minHeight: 92)
-                            .padding(8)
-                            .background(selected ? PaperTheme.soft.opacity(0.72) : Color.clear)
-                            .overlay(alignment: .bottom) {
-                                Rectangle().fill(selected ? PaperTheme.ink : PaperTheme.rule)
-                                    .frame(height: selected ? 1.5 : 0.6)
-                            }
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityAddTraits(selected ? .isSelected : [])
-                    }
+                if choosingChild {
+                    childCategoryChoices
+                } else {
+                    parentCategoryChoices
                 }
-                if keepsLegacyCategory {
+                if keepsLegacyCategory && !choosingChild {
                     Button {
                         EntryFeedback.tap()
                         selectedParent = nil
@@ -401,6 +373,70 @@ struct TransactionEditor: View {
                 move(to: .details, forward: true)
             }
         }
+    }
+
+    private var parentCategoryChoices: some View {
+        let columns = Array(repeating: GridItem(.flexible(), spacing: 10), count: typeSize.isAccessibilitySize ? 2 : 3)
+        return LazyVGrid(columns: columns, spacing: 10) {
+            ForEach(topCategories) { parent in
+                let selected = selectedParent === parent
+                Button {
+                    choose(parent)
+                } label: {
+                    VStack(spacing: 8) {
+                        CategoryGlyph(name: parent.name, icon: parent.icon, size: 44)
+                        Text(parent.name).font(.subheadline.weight(.medium)).lineLimit(2)
+                    }
+                    .frame(maxWidth: .infinity, minHeight: 92)
+                    .padding(8)
+                    .background(selected ? PaperTheme.soft.opacity(0.72) : Color.clear)
+                    .overlay(alignment: .bottom) {
+                        Rectangle().fill(selected ? PaperTheme.ink : PaperTheme.rule)
+                            .frame(height: selected ? 1.5 : 0.6)
+                    }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityAddTraits(selected ? .isSelected : [])
+            }
+        }
+    }
+
+    private var childCategoryChoices: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Button {
+                EntryFeedback.tap()
+                choosingChild = false
+            } label: {
+                Label("返回分类", systemImage: "chevron.left")
+                    .frame(minHeight: 44)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("entryParentCategories")
+
+            let columns = Array(repeating: GridItem(.flexible(), spacing: 10), count: typeSize.isAccessibilitySize ? 1 : 2)
+            LazyVGrid(columns: columns, spacing: 10) {
+                childCategoryButton("不分子类", child: nil)
+                ForEach(activeChildren) { child in
+                    childCategoryButton(child.name, child: child)
+                }
+            }
+        }
+    }
+
+    private func childCategoryButton(_ title: String, child: CategoryModel?) -> some View {
+        Button {
+            completeCategory(with: child)
+        } label: {
+            Text(title)
+                .font(.subheadline.weight(.medium))
+                .frame(maxWidth: .infinity, minHeight: 60)
+                .padding(.horizontal, 12)
+                .background(PaperTheme.soft.opacity(0.72), in: RoundedRectangle(cornerRadius: 4))
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 
     private var detailsStep: some View {
@@ -465,11 +501,6 @@ struct TransactionEditor: View {
         }
     }
 
-    private var childDialogTitle: String {
-        guard let selectedParent else { return "选择子分类" }
-        return "\(selectedParent.name)的子分类"
-    }
-
     private func choose(_ parent: CategoryModel) {
         EntryFeedback.tap()
         selectedParent = parent
@@ -479,7 +510,7 @@ struct TransactionEditor: View {
         let children = parent.sortedChildren.filter { !$0.isArchived }
         if children.isEmpty {
             childChoiceMade = true
-            move(to: .details, forward: true)
+            move(to: .details, forward: true, animated: false)
         } else {
             choosingChild = true
         }
@@ -492,8 +523,8 @@ struct TransactionEditor: View {
         legacyChild = ""
         childChoiceMade = true
         choosingChild = false
-        // The dialog dismisses its own action; update the step in the same event.
-        move(to: .details, forward: true)
+        // No modal dismissal or slide animation sits between this tap and details.
+        move(to: .details, forward: true, animated: false)
     }
 
     private func stepSummary(title: String, value: String) -> some View {
@@ -584,16 +615,17 @@ struct TransactionEditor: View {
         case .amount:
             cancel()
         case .category:
-            move(to: .amount, forward: false)
+            if choosingChild { choosingChild = false }
+            else { move(to: .amount, forward: false) }
         case .details:
             noteFocused = false
             move(to: .category, forward: false)
         }
     }
 
-    private func move(to newStep: EntryStep, forward: Bool) {
+    private func move(to newStep: EntryStep, forward: Bool, animated: Bool = true) {
         direction = forward ? 1 : -1
-        withAnimation(reduceMotion ? nil : .easeOut(duration: 0.18)) { step = newStep }
+        withAnimation(reduceMotion || !animated ? nil : .easeOut(duration: 0.18)) { step = newStep }
     }
 
     private func setup() {
