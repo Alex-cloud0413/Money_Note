@@ -4,34 +4,44 @@ import UIKit
 struct MainTabView: View {
     @EnvironmentObject private var session: AppSession
     @AppStorage("appearanceMode") private var appearanceRaw = AppearanceMode.system.rawValue
+
     var body: some View {
-        NativeTabs(selection: session.tabs)
-        .environment(\.locale, Locale(identifier: "zh_CN"))
-        .tint(PaperTheme.accent)
-        .background {
-            WindowAppearance(colorScheme: AppearanceMode(rawValue: appearanceRaw)?.colorScheme)
-                .frame(width: 0, height: 0)
-                .allowsHitTesting(false)
-                .accessibilityHidden(true)
-        }
+        NavigationTabs(selection: session.tabs)
+            .environment(\.locale, Locale(identifier: "zh_CN"))
+            .tint(PaperTheme.accent)
+            .background {
+                WindowAppearance(colorScheme: AppearanceMode(rawValue: appearanceRaw)?.colorScheme)
+                    .frame(width: 0, height: 0)
+                    .allowsHitTesting(false)
+                    .accessibilityHidden(true)
+            }
     }
 }
 
-/// Observe selection at the tab shell, without invalidating ledger and chart pages.
-private struct NativeTabs: View {
+private struct NavigationTabs: View {
     @ObservedObject var selection: AppTabSelection
 
     var body: some View {
-        TabView(selection: $selection.value) {
-            ContentView().safeAreaInset(edge: .bottom, spacing: 0) { SessionNotice() }
-                .tabItem { Label("明细", systemImage: "text.alignleft") }.tag(0)
-            LedgersView().safeAreaInset(edge: .bottom, spacing: 0) { SessionNotice() }
-                .tabItem { Label("账本", systemImage: "books.vertical") }.tag(1)
-            StatsView().safeAreaInset(edge: .bottom, spacing: 0) { SessionNotice() }
-                .tabItem { Label("统计", systemImage: "chart.bar.xaxis") }.tag(2)
-            BudgetView().safeAreaInset(edge: .bottom, spacing: 0) { SessionNotice() }
-                .tabItem { Label("预算", systemImage: "circle.dashed") }.tag(3)
+        VStack(spacing: 0) {
+            TabView(selection: $selection.value) {
+                ContentView()
+                    .tabItem { Label("明细", systemImage: "text.alignleft") }.tag(0)
+                    .toolbar(.hidden, for: .tabBar)
+                LedgersView()
+                    .tabItem { Label("账本", systemImage: "books.vertical") }.tag(1)
+                    .toolbar(.hidden, for: .tabBar)
+                StatsView()
+                    .tabItem { Label("统计", systemImage: "chart.bar.xaxis") }.tag(2)
+                    .toolbar(.hidden, for: .tabBar)
+                BudgetView()
+                    .tabItem { Label("预算", systemImage: "circle.dashed") }.tag(3)
+                    .toolbar(.hidden, for: .tabBar)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            SessionNotice()
+            ControlledGlassTabBar(selection: $selection.value, onSelectionFeedback: EntryFeedback.tap)
         }
+        .background(PaperTheme.paper)
     }
 }
 
