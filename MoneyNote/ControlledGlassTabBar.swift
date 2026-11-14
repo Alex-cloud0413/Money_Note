@@ -115,7 +115,7 @@ struct ControlledGlassTabBar: View {
             // This is the only animated property in the navigation control.
             // In particular, no animation transaction wraps the page binding.
             .animation(
-                isDragging || reduceMotion ? nil : .easeOut(duration: 0.16),
+                isDragging || reduceMotion ? nil : .easeOut(duration: 0.10),
                 value: lensPosition
             )
             .allowsHitTesting(false)

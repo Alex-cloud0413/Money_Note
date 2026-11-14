@@ -80,16 +80,16 @@ private struct NavigationTabs: View {
     var body: some View {
         VStack(spacing: 0) {
             TabView(selection: $selection.value) {
-                ContentView()
+                StableTabPage(page: .details).equatable()
                     .tabItem { Label("明细", systemImage: "text.alignleft") }.tag(0)
                     .toolbar(.hidden, for: .tabBar)
-                LedgersView()
+                StableTabPage(page: .ledgers).equatable()
                     .tabItem { Label("账本", systemImage: "books.vertical") }.tag(1)
                     .toolbar(.hidden, for: .tabBar)
-                StatsView()
+                StableTabPage(page: .statistics).equatable()
                     .tabItem { Label("统计", systemImage: "chart.bar.xaxis") }.tag(2)
                     .toolbar(.hidden, for: .tabBar)
-                BudgetView()
+                StableTabPage(page: .budgets).equatable()
                     .tabItem { Label("预算", systemImage: "circle.dashed") }.tag(3)
                     .toolbar(.hidden, for: .tabBar)
             }
@@ -98,6 +98,23 @@ private struct NavigationTabs: View {
             ControlledGlassTabBar(selection: $selection.value, onSelectionFeedback: EntryFeedback.tap)
         }
         .background(PaperTheme.paper)
+    }
+}
+
+// Selection changes the container, not the pages' input values. Construct the
+// query-owning roots below a stable boundary; their own model, environment and
+// settings observations continue to invalidate them independently.
+private struct StableTabPage: View, Equatable {
+    enum Page: Equatable { case details, ledgers, statistics, budgets }
+    let page: Page
+
+    @ViewBuilder var body: some View {
+        switch page {
+        case .details: ContentView()
+        case .ledgers: LedgersView()
+        case .statistics: StatsView()
+        case .budgets: BudgetView()
+        }
     }
 }
 
