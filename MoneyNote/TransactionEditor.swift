@@ -161,12 +161,18 @@ struct TransactionEditor: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button(action: cancel) { Label("取消", systemImage: "xmark") }
+                    Button {
+                        EntryFeedback.tap()
+                        cancel()
+                    } label: { Label("取消", systemImage: "xmark") }
                         .accessibilityIdentifier("entryCancel")
                 }
                 if editing != nil && step == .details {
                     ToolbarItem(placement: .bottomBar) {
-                        Button(role: .destructive) { confirmDelete = true } label: {
+                        Button(role: .destructive) {
+                            EntryFeedback.tap()
+                            confirmDelete = true
+                        } label: {
                             Label("删除这笔账", systemImage: "trash")
                         }
                     }
@@ -179,7 +185,7 @@ struct TransactionEditor: View {
                 ForEach(activeChildren) { child in
                     Button(child.name) { completeCategory(with: child) }
                 }
-                Button("返回分类", role: .cancel) {}
+                Button("返回分类", role: .cancel) { EntryFeedback.tap() }
             } message: {
                 Text("选择后会自动进入详情。")
             }
@@ -197,7 +203,10 @@ struct TransactionEditor: View {
             .alert("未能保存", isPresented: Binding(get: { saveError != nil }, set: { if !$0 { saveError = nil } })) {
                 Button("好") { saveError = nil }
             } message: { Text(saveError ?? "") }
-            .onAppear(perform: setup)
+            .onAppear {
+                EntryFeedback.prepare()
+                setup()
+            }
             .task(id: fx.id(currency: currency, date: date)) {
                 await fx.load(currency: currency, date: date)
             }
@@ -282,6 +291,8 @@ struct TransactionEditor: View {
     private var amountOverviewContent: some View {
         VStack(alignment: .leading, spacing: 16) {
                 Picker("收支类型", selection: Binding(get: { type }, set: { value in
+                    guard type != value else { return }
+                    EntryFeedback.tap()
                     type = value
                     selectedParent = nil
                     selectedChild = nil
@@ -359,6 +370,7 @@ struct TransactionEditor: View {
                 }
                 if keepsLegacyCategory {
                     Button {
+                        EntryFeedback.tap()
                         selectedParent = nil
                         selectedChild = nil
                         legacyChild = editing?.subcategoryName ?? ""
@@ -371,7 +383,10 @@ struct TransactionEditor: View {
                     .buttonStyle(.plain)
                 }
                 InlineValidation(message: selectedParent == nil ? nil : categoryValidation)
-                Button { managingCategories = true } label: {
+                Button {
+                    EntryFeedback.tap()
+                    managingCategories = true
+                } label: {
                     Label("管理分类", systemImage: "slider.horizontal.3")
                         .frame(maxWidth: .infinity).frame(minHeight: 44)
                 }
@@ -456,6 +471,7 @@ struct TransactionEditor: View {
     }
 
     private func choose(_ parent: CategoryModel) {
+        EntryFeedback.tap()
         selectedParent = parent
         selectedChild = nil
         legacyChild = ""
@@ -470,14 +486,14 @@ struct TransactionEditor: View {
     }
 
     private func completeCategory(with child: CategoryModel?) {
+        guard step == .category else { return }
+        EntryFeedback.tap()
         selectedChild = child
         legacyChild = ""
         childChoiceMade = true
         choosingChild = false
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) {
-            guard step == .category else { return }
-            move(to: .details, forward: true)
-        }
+        // The dialog dismisses its own action; update the step in the same event.
+        move(to: .details, forward: true)
     }
 
     private func stepSummary(title: String, value: String) -> some View {
@@ -512,14 +528,20 @@ struct TransactionEditor: View {
 
     private func primaryStepButton(_ title: String, canContinue: Bool,
                                    identifier: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) { Text(title).frame(maxWidth: .infinity) }
+        Button {
+            EntryFeedback.tap()
+            action()
+        } label: { Text(title).frame(maxWidth: .infinity) }
             .buttonStyle(PrimaryButtonStyle())
             .disabled(!canContinue)
             .accessibilityIdentifier(identifier)
     }
 
     private var previousStepButton: some View {
-        Button(action: backOrCancel) {
+        Button {
+            EntryFeedback.tap()
+            backOrCancel()
+        } label: {
             Label("上一步", systemImage: "chevron.left")
                 .font(.subheadline.weight(.semibold))
                 .lineLimit(1)
@@ -548,6 +570,7 @@ struct TransactionEditor: View {
                 guard horizontal > 56,
                       max(horizontal, projected) > 96,
                       horizontal > vertical * 1.4 else { return }
+                EntryFeedback.tap()
                 backOrCancel()
             }
     }
@@ -570,7 +593,7 @@ struct TransactionEditor: View {
 
     private func move(to newStep: EntryStep, forward: Bool) {
         direction = forward ? 1 : -1
-        withAnimation(reduceMotion ? nil : .spring(response: 0.32, dampingFraction: 1)) { step = newStep }
+        withAnimation(reduceMotion ? nil : .easeOut(duration: 0.18)) { step = newStep }
     }
 
     private func setup() {

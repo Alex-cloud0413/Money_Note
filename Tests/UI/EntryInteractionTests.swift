@@ -27,6 +27,81 @@ final class EntryInteractionTests: XCTestCase {
     private func snapshot(_ name: String) {
         let a = XCTAttachment(screenshot: app.screenshot()); a.name = name; a.lifetime = .keepAlways; add(a)
     }
+    private func discardEntry() {
+        app.buttons["entryCancel"].tap()
+        let discard = app.buttons["放弃修改"]
+        XCTAssertTrue(discard.waitForExistence(timeout: 3))
+        discard.tap()
+        XCTAssertTrue(app.buttons["addTransaction"].waitForExistence(timeout: 3))
+    }
+
+    func testKeypadCalculationAndChildCategoryReselection() throws {
+        app.buttons["addTransaction"].tap()
+        visibleButton("清空").tap()
+        XCTAssertFalse(app.buttons["entryNext"].isEnabled)
+        visibleButton("+").tap()
+        XCTAssertTrue(app.staticTexts["¥0"].exists, "An operator cannot start an amount")
+        for key in ["1", "2", ".", ".", "5", "乘以", "2"] { visibleButton(key).tap() }
+        XCTAssertTrue(app.staticTexts["¥12.5×2"].exists, "Repeated decimal points must be ignored")
+        visibleButton("entryNext").tap()
+        XCTAssertTrue(app.staticTexts["¥25"].exists)
+        visibleButton("删除最后一位").tap()
+        XCTAssertTrue(app.staticTexts["¥2"].exists)
+        visibleButton("5").tap()
+        snapshot("entry-keypad-feedback")
+        visibleButton("entryNext").tap()
+        XCTAssertTrue(app.staticTexts["一级分类"].waitForExistence(timeout: 3))
+        visibleButton("餐饮").tap()
+        XCTAssertTrue(app.buttons["外卖"].waitForExistence(timeout: 3))
+        app.buttons["外卖"].tap()
+        XCTAssertTrue(app.buttons["saveTransaction"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.staticTexts["餐饮 · 外卖"].exists)
+        visibleButton("entryBack").tap()
+        XCTAssertTrue(app.staticTexts["一级分类"].waitForExistence(timeout: 3))
+        visibleButton("交通").tap()
+        XCTAssertTrue(app.buttons["公交地铁"].waitForExistence(timeout: 3))
+        app.buttons["公交地铁"].tap()
+        XCTAssertTrue(app.buttons["saveTransaction"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.staticTexts["交通 · 公交地铁"].exists)
+        snapshot("entry-child-selected")
+        visibleButton("entryBack").tap()
+        visibleButton("entryBack").tap()
+        XCTAssertTrue(app.staticTexts["¥25"].waitForExistence(timeout: 3))
+        discardEntry()
+    }
+
+    func testCategoryWithoutChildrenAndCancelledChildPicker() throws {
+        app.buttons["addTransaction"].tap()
+        visibleButton("清空").tap()
+        visibleButton("8").tap()
+        visibleButton("entryNext").tap()
+        XCTAssertTrue(app.staticTexts["一级分类"].waitForExistence(timeout: 3))
+        visibleButton("娱乐").tap()
+        XCTAssertTrue(app.buttons["saveTransaction"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.staticTexts["娱乐"].exists)
+        visibleButton("entryBack").tap()
+        XCTAssertTrue(app.staticTexts["一级分类"].waitForExistence(timeout: 3))
+        visibleButton("餐饮").tap()
+        XCTAssertTrue(app.buttons["不分子类"].waitForExistence(timeout: 3), app.debugDescription)
+        snapshot("entry-child-picker-before-cancel")
+        if app.buttons["返回分类"].exists {
+            app.buttons["返回分类"].tap()
+        } else {
+            // Newer system popovers dismiss by tapping their outside region.
+            app.navigationBars["记一笔"].coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
+        }
+        XCTAssertTrue(app.staticTexts["一级分类"].waitForExistence(timeout: 3))
+        XCTAssertFalse(app.buttons["saveTransaction"].exists)
+        XCTAssertFalse(app.buttons["entryNext"].isEnabled)
+        snapshot("entry-category-picker-cancelled")
+        visibleButton("购物").tap()
+        XCTAssertTrue(app.buttons["不分子类"].waitForExistence(timeout: 3))
+        app.buttons["不分子类"].tap()
+        XCTAssertTrue(app.buttons["saveTransaction"].waitForExistence(timeout: 3))
+        XCTAssertTrue(app.staticTexts["购物"].exists)
+        discardEntry()
+    }
+
     func testEntrySurvivesRotationAndBackNavigation() throws {
         XCTAssertTrue(app.buttons["addTransaction"].isHittable)
         app.buttons["addTransaction"].tap()

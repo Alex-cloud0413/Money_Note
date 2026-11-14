@@ -33,9 +33,14 @@ struct CalculatorKeypad: View {
             }
             InlineValidation(message: calculationError)
             HStack(spacing: 8) {
-                Button { text = ""; clearOnNextInput = false } label: { Text("清空").keyLabel() }
+                Button {
+                    EntryFeedback.tap()
+                    text = ""
+                    clearOnNextInput = false
+                } label: { Text("清空").keyLabel() }
                     .buttonStyle(PaperKeyStyle(soft: true))
                 Button {
+                    EntryFeedback.tap()
                     if hasOperator {
                         if let value = Calc.evaluate(text), text.last.map({ !"+-×÷".contains($0) }) == true {
                             text = Calc.format(value); calculationError = nil
@@ -49,6 +54,7 @@ struct CalculatorKeypad: View {
                 .accessibilityIdentifier("entryNext")
             }
         }.padding(.horizontal, 20).padding(.vertical, 12).background(PaperTheme.paper)
+            .onAppear { EntryFeedback.prepare() }
             .onChange(of: text) { _, _ in calculationError = nil }
     }
 
@@ -84,6 +90,7 @@ struct CalculatorKeypad: View {
 
     /// 处理一次按键
     private func tap(_ key: String) {
+        EntryFeedback.tap()
         // 编辑金额时：按下第一个数字/小数点，先清空原金额
         let isDigit = key.count == 1 && (key.first?.isNumber ?? false)
         if clearOnNextInput && (isDigit || key == ".") {
